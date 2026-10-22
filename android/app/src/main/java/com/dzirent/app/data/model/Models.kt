@@ -76,10 +76,16 @@ data class Conversation(
     @SerialName("renter_id") val renterId: String,
     @SerialName("lender_id") val lenderId: String,
     @SerialName("created_at") val createdAt: String? = null,
+    // Embedded via select(), never written.
     val listing: Listing? = null,
-    val otherUser: Profile? = null,
-    val lastMessage: Message? = null
-)
+    val renter: Profile? = null,
+    val lender: Profile? = null,
+    val messages: List<Message> = emptyList()
+) {
+    fun otherUserId(me: String): String = if (me == renterId) lenderId else renterId
+    fun otherUser(me: String): Profile? = if (me == renterId) lender else renter
+    val lastMessage: Message? get() = messages.firstOrNull()
+}
 
 @Serializable
 data class Message(
@@ -128,7 +134,8 @@ data class RentalOutcome(
     @SerialName("conversation_id") val conversationId: String,
     @SerialName("user_id") val userId: String,
     val happened: Boolean,
-    @SerialName("answered_at") val answeredAt: String
+    // Filled in by the DB default on insert.
+    @SerialName("answered_at") val answeredAt: String? = null
 )
 
 object Roles {

@@ -60,6 +60,9 @@ fun formatInboxTime(iso: String?, now: OffsetDateTime = OffsetDateTime.now()): S
     }
 }
 
+/** Epoch millis of an ISO timestamp, or 0 if missing or invalid (sorts last). */
+fun timestampMillis(iso: String?): Long = parseTimestamp(iso)?.toInstant()?.toEpochMilli() ?: 0L
+
 /** Whole days since an ISO timestamp, or null if it can't be parsed. */
 fun daysSince(iso: String?, now: OffsetDateTime = OffsetDateTime.now()): Long? =
     parseTimestamp(iso)?.let { ChronoUnit.DAYS.between(it, now) }

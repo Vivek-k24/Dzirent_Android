@@ -9,19 +9,23 @@ import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
 import com.dzirent.app.util.haversineKm
 import com.dzirent.app.util.roundCoord
+import com.dzirent.app.util.timestampMillis
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.HasRecord
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeRecord
+import io.github.jan.supabase.realtime.decodeRecordOrNull
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -37,6 +41,22 @@ import kotlin.math.*
  * URLs, headers and login tokens, so they are never shown on screen.
  */
 class DzirentException(message: String) : Exception(message)
+
+/** Shown when RLS rejects a chat because one side blocked the other. */
+const val CANT_MESSAGE_USER = "You can't message this user."
+
+/** A conversation with its listing (and photos) and both people's public profiles. */
+private const val CONVERSATION_WITH_PEOPLE =
+    "*, listing:listings(*, photos:listing_photos(*)), " +
+        "renter:profiles!conversations_renter_id_fkey(id, display_name, city), " +
+        "lender:profiles!conversations_lender_id_fkey(id, display_name, city)"
+
+/** Live chat updates; [close] leaves the realtime channel. */
+class ChatSubscription(
+    val messages: Flow<Message>,
+    val rentals: Flow<Rental>,
+    val close: suspend () -> Unit
+)
 
 /** Embedded select for a listing with all of its child rows and the lender's public profile. */
 private const val LISTING_WITH_CHILDREN =
@@ -63,6 +83,19 @@ class DzirentRepository {
         // First line only: later lines of Supabase errors include URLs and auth headers.
         val firstLine = throwable.message?.lineSequence()?.firstOrNull().orEmpty()
         Log.e("Dzirent", "Supabase error during $operation: ${throwable.javaClass.simpleName} - $firstLine")
+    }
+
+    /**
+     * Like [fail], but an RLS rejection here means one of the two people blocked the other
+     * (the policies check is_blocked), so say that instead of "session expired".
+     */
+    private fun failBlockAware(operation: String, throwable: Throwable): DzirentException {
+        val raw = throwable.message.orEmpty().lowercase()
+        if ("row-level security" in raw) {
+            logError(operation, throwable)
+            return DzirentException(CANT_MESSAGE_USER)
+        }
+        return fail(operation, throwable)
     }
 
     /** Logs the technical error and returns a friendly exception for the UI. */
@@ -523,19 +556,38 @@ class DzirentRepository {
     }
 
     // --- CHAT & REALTIME ---
+
+    /**
+     * My conversations with listing (and photos), both people and the latest message,
+     * newest activity first.
+     */
     suspend fun getConversations(userId: String): List<Conversation> {
         return try {
-            postgrest.from("conversations").select {
+            postgrest.from("conversations").select(
+                Columns.raw("$CONVERSATION_WITH_PEOPLE, messages(id, conversation_id, sender_id, body, created_at)")
+            ) {
                 filter {
                     or {
                         eq("renter_id", userId)
                         eq("lender_id", userId)
                     }
                 }
-                order("created_at", Order.DESCENDING)
+                order("created_at", Order.DESCENDING, referencedTable = "messages")
+                limit(1, referencedTable = "messages")
             }.decodeList<Conversation>()
+                .sortedByDescending { timestampMillis(it.lastMessage?.createdAt ?: it.createdAt) }
         } catch (e: Exception) {
             throw fail("load your messages", e)
+        }
+    }
+
+    suspend fun getConversation(conversationId: String): Conversation {
+        return try {
+            postgrest.from("conversations").select(Columns.raw(CONVERSATION_WITH_PEOPLE)) {
+                filter { eq("id", conversationId) }
+            }.decodeSingle<Conversation>()
+        } catch (e: Exception) {
+            throw fail("open the chat", e)
         }
     }
 
@@ -560,7 +612,7 @@ class DzirentRepository {
             postgrest.from("conversations").insert(newConv)
             newConv
         } catch (e: Exception) {
-            throw fail("open the chat", e)
+            throw failBlockAware("open the chat", e)
         }
     }
 
@@ -575,6 +627,7 @@ class DzirentRepository {
         }
     }
 
+    /** Sends a message and returns the saved row (with the server's id and time). */
     suspend fun sendMessage(conversationId: String, senderId: String, text: String): Message {
         return try {
             val msg = Message(
@@ -583,18 +636,41 @@ class DzirentRepository {
                 senderId = senderId,
                 body = text
             )
-            postgrest.from("messages").insert(msg)
-            msg
+            postgrest.from("messages").insert(msg) { select() }.decodeSingle<Message>()
         } catch (e: Exception) {
-            throw fail("send your message", e)
+            throw failBlockAware("send your message", e)
         }
     }
 
-    fun observeRealtimeMessages(conversationId: String): Flow<Message> {
+    /**
+     * Live inserts on this conversation's messages and changes to its rental. Collect the
+     * flows, and call [ChatSubscription.close] when the chat closes.
+     */
+    suspend fun subscribeToChat(conversationId: String): ChatSubscription {
         val channel = realtime.channel("chat_$conversationId")
-        return channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+        val messages = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "messages"
-        }.map { action -> action.decodeRecord() }
+            filter("conversation_id", FilterOperator.EQ, conversationId)
+        }.mapNotNull { action ->
+            runCatching { action.decodeRecord<Message>() }.onFailure { logError("decode live message", it) }.getOrNull()
+        }
+        val rentals = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "rentals"
+            filter("conversation_id", FilterOperator.EQ, conversationId)
+        }.mapNotNull { action -> (action as? HasRecord)?.decodeRecordOrNull<Rental>() }
+        try {
+            channel.subscribe()
+        } catch (e: Exception) {
+            runCatching { realtime.removeChannel(channel) }
+            throw fail("connect to live chat", e)
+        }
+        return ChatSubscription(messages, rentals) {
+            try {
+                realtime.removeChannel(channel)
+            } catch (e: Exception) {
+                logError("leave live chat", e)
+            }
+        }
     }
 
     // --- RENTALS ---
@@ -613,6 +689,80 @@ class DzirentRepository {
             }.decodeList<Rental>()
         } catch (e: Exception) {
             throw fail("load your rentals", e)
+        }
+    }
+
+    suspend fun getRental(conversationId: String): Rental? {
+        return try {
+            postgrest.from("rentals").select {
+                filter { eq("conversation_id", conversationId) }
+            }.decodeSingleOrNull<Rental>()
+        } catch (e: Exception) {
+            throw fail("load the rental status", e)
+        }
+    }
+
+    /**
+     * Creates or updates the rental row for a conversation. Dates are only changed when
+     * given. If the other person created the row a moment earlier, this updates it instead.
+     */
+    suspend fun saveRental(
+        conversation: Conversation,
+        status: String,
+        startDate: String?,
+        endDate: String?,
+        userId: String
+    ): Rental {
+        val changes = buildJsonObject {
+            put("status", status)
+            put("updated_by", userId)
+            if (startDate != null && endDate != null) {
+                put("start_date", startDate)
+                put("end_date", endDate)
+            }
+        }
+        suspend fun update(rentalId: String): Rental =
+            postgrest.from("rentals").update(changes) {
+                filter { eq("id", rentalId) }
+                select()
+            }.decodeSingle<Rental>()
+
+        return try {
+            val existing = getRental(conversation.id)
+            if (existing?.id != null) {
+                update(existing.id)
+            } else {
+                try {
+                    postgrest.from("rentals").insert(
+                        buildJsonObject {
+                            put("conversation_id", conversation.id)
+                            put("listing_id", conversation.listingId)
+                            put("renter_id", conversation.renterId)
+                            put("lender_id", conversation.lenderId)
+                            changes.forEach { (key, value) -> put(key, value) }
+                        }
+                    ) { select() }.decodeSingle<Rental>()
+                } catch (insertEx: Exception) {
+                    val raced = getRental(conversation.id)?.id ?: throw insertEx
+                    update(raced)
+                }
+            }
+        } catch (e: Exception) {
+            throw fail("update the rental", e)
+        }
+    }
+
+    /** My answer to "Did this rental happen?" for a conversation, if any. */
+    suspend fun getMyRentalOutcome(conversationId: String, userId: String): RentalOutcome? {
+        return try {
+            postgrest.from("rental_outcomes").select {
+                filter {
+                    eq("conversation_id", conversationId)
+                    eq("user_id", userId)
+                }
+            }.decodeSingleOrNull<RentalOutcome>()
+        } catch (e: Exception) {
+            throw fail("load your answer", e)
         }
     }
 

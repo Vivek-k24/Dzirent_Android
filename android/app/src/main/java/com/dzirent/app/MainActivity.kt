@@ -270,7 +270,8 @@ fun MainAppScaffold(
                     repository = repository,
                     conversationId = conversationId,
                     currentUserId = profile.id,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onOpenListing = { id -> navController.navigate("detail/$id") }
                 )
             }
             composable("list") {
