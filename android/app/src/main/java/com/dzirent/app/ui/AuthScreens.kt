@@ -230,10 +230,18 @@ fun SignUpScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    // Set when the account is created but Supabase needs the email confirmed before login.
+    var confirmationSentTo by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     if (isLoading) {
         LoadingView(message = "Creating account...")
+        return
+    }
+
+    val sentTo = confirmationSentTo
+    if (sentTo != null) {
+        EmailConfirmationView(email = sentTo, onGoToLogin = onNavigateToLogin)
         return
     }
 
@@ -384,6 +392,10 @@ fun SignUpScreen(
                         errorMessage = "Please fill in all required fields."
                         return@Button
                     }
+                    if (password.trim().length < 6) {
+                        errorMessage = "Password must be at least 6 characters."
+                        return@Button
+                    }
                     if (!adultConfirmed) {
                         errorMessage = "You must confirm you are 18+ to proceed."
                         return@Button
@@ -391,9 +403,10 @@ fun SignUpScreen(
                     scope.launch {
                         isLoading = true
                         errorMessage = null
+                        val trimmedEmail = email.trim()
                         try {
                             val profile = repository.signUp(
-                                emailStr = email.trim(),
+                                emailStr = trimmedEmail,
                                 passwordStr = password.trim(),
                                 displayName = displayName.trim(),
                                 role = selectedRole,
@@ -403,7 +416,13 @@ fun SignUpScreen(
                                 lng = 0.0
                             )
                             isLoading = false
-                            onSignUpSuccess(profile)
+                            if (profile != null) {
+                                // Email confirmation is off: the user is already logged in.
+                                onSignUpSuccess(profile)
+                            } else {
+                                // Email confirmation is on: show the "check your email" screen.
+                                confirmationSentTo = trimmedEmail
+                            }
                         } catch (e: Exception) {
                             isLoading = false
                             errorMessage = e.localizedMessage ?: "Failed to sign up. Please try again."
@@ -429,6 +448,53 @@ fun SignUpScreen(
                 Text("Back to Welcome")
             }
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+fun EmailConfirmationView(
+    email: String,
+    onGoToLogin: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Mail,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(72.dp)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Check your email",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "We sent a confirmation link to $email. Open it, then come back and log in.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(
+                onClick = onGoToLogin,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Go to Log In")
+            }
         }
     }
 }

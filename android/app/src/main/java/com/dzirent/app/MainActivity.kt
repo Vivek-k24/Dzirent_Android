@@ -2,6 +2,7 @@ package com.dzirent.app
 
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -18,6 +20,7 @@ import com.dzirent.app.data.model.Profile
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.ui.*
 import com.dzirent.app.ui.theme.DzirentTheme
+import kotlinx.coroutines.launch
 
 sealed class AuthState {
     object Loading : AuthState()
@@ -46,34 +49,21 @@ fun DzirentApp() {
     val repository = remember { DzirentRepository() }
     var authState by remember { mutableStateOf<AuthState>(AuthState.Loading) }
 
-    fun checkSession() {
-        try {
-            val session = SupabaseConfig.auth.currentSessionOrNull()
-            if (session != null) {
-                val userId = session.user?.id ?: ""
-                val role = session.user?.userMetadata?.get("role")?.toString() ?: "both"
-                val displayName = session.user?.userMetadata?.get("display_name")?.toString() ?: "User"
-                val profile = Profile(
-                    id = userId,
-                    displayName = displayName,
-                    role = role,
-                    city = "Nearby",
-                    approxLat = 0.0,
-                    approxLng = 0.0,
-                    adultConfirmed = true
-                )
-                authState = AuthState.Authenticated(profile)
+    LaunchedEffect(Unit) {
+        authState = try {
+            // Supabase restores a saved session in the background; wait for it before deciding.
+            SupabaseConfig.auth.awaitInitialization()
+            if (SupabaseConfig.auth.currentSessionOrNull() == null) {
+                AuthState.Unauthenticated
             } else {
-                authState = AuthState.Unauthenticated
+                // Load the real profile so role and city come from the database, not metadata.
+                val profile = repository.getCurrentProfile()
+                if (profile != null) AuthState.Authenticated(profile) else AuthState.Unauthenticated
             }
         } catch (e: Exception) {
-            Log.e("Dzirent", "Supabase error checking session: ${e.javaClass.simpleName} - ${e.message}")
-            authState = AuthState.Unauthenticated
+            Log.e("Dzirent", "Session check failed: ${e.javaClass.simpleName}")
+            AuthState.Unauthenticated
         }
-    }
-
-    LaunchedEffect(Unit) {
-        checkSession()
     }
 
     when (val state = authState) {
@@ -140,6 +130,8 @@ fun MainAppScaffold(
     onSignOut: () -> Unit
 ) {
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var currentTab by remember { mutableStateOf("browse") }
     val userRole = userProfile.role
 
@@ -245,8 +237,24 @@ fun MainAppScaffold(
                     listingId = listingId,
                     currentUserId = userProfile.id,
                     onBack = { navController.popBackStack() },
-                    onMessageLender = { _, _ ->
-                        navController.navigate("inbox")
+                    onMessageLender = { targetListingId, lenderId ->
+                        // Create the conversation (or reuse the existing one), then open it.
+                        scope.launch {
+                            try {
+                                val conversation = repository.getOrCreateConversation(
+                                    listingId = targetListingId,
+                                    renterId = userProfile.id,
+                                    lenderId = lenderId
+                                )
+                                navController.navigate("chat/${conversation.id}")
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    e.message ?: "Couldn't open the chat. Please try again.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                     }
                 )
             }

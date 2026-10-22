@@ -3,15 +3,19 @@ package com.dzirent.app.data.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// Columns that can be NULL in the database have defaults here. Together with
+// coerceInputValues in SupabaseConfig, a NULL value decodes to the default
+// instead of crashing.
+
 @Serializable
 data class Profile(
     val id: String,
-    @SerialName("display_name") val displayName: String,
-    val role: String, // 'renter' | 'lender' | 'both'
-    val city: String,
-    @SerialName("approx_lat") val approxLat: Double,
-    @SerialName("approx_lng") val approxLng: Double,
-    @SerialName("adult_confirmed") val adultConfirmed: Boolean,
+    @SerialName("display_name") val displayName: String = "",
+    val role: String = "renter", // 'renter' | 'lender' | 'both'
+    val city: String = "",
+    @SerialName("approx_lat") val approxLat: Double = 0.0,
+    @SerialName("approx_lng") val approxLng: Double = 0.0,
+    @SerialName("adult_confirmed") val adultConfirmed: Boolean = false,
     @SerialName("created_at") val createdAt: String? = null
 )
 
@@ -21,10 +25,10 @@ data class Listing(
     @SerialName("lender_id") val lenderId: String,
     val title: String,
     val category: String,
-    @SerialName("size_label") val sizeLabel: String,
-    val description: String,
-    @SerialName("price_note") val priceNote: String,
-    val city: String,
+    @SerialName("size_label") val sizeLabel: String = "",
+    val description: String = "",
+    @SerialName("price_note") val priceNote: String = "",
+    val city: String = "",
     @SerialName("approx_lat") val approxLat: Double,
     @SerialName("approx_lng") val approxLng: Double,
     val status: String, // 'active' | 'paused'
