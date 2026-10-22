@@ -9,7 +9,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,7 +38,9 @@ import com.dzirent.app.util.DEFAULT_DISTANCE_KM
 import com.dzirent.app.util.DISTANCE_OPTIONS_KM
 import com.dzirent.app.util.formatDateRange
 import com.dzirent.app.util.formatDistance
+import com.dzirent.app.util.parseDateRange
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 sealed class UiState<out T> {
     object Loading : UiState<Nothing>()
@@ -333,25 +338,7 @@ fun ListingDetailScreen(
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp)
                 ) {
-                    val photoUrl = listing.photos.firstOrNull()?.storagePath
-                    if (!photoUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = photoUrl,
-                            contentDescription = listing.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(260.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                        )
-                    } else {
-                        NoPhotoPlaceholder(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                        )
-                    }
+                    PhotoCarousel(photos = listing.photos, title = listing.title)
 
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
@@ -361,7 +348,8 @@ fun ListingDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "${listing.category} | Size ${listing.sizeLabel}",
+                        text = listOf(listing.category, listing.sizeLabel.ifBlank { null }?.let { "Size $it" })
+                            .filterNotNull().joinToString(" | "),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.secondary
                     )
@@ -372,35 +360,73 @@ fun ListingDetailScreen(
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "Location: ${listing.city}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = listOfNotNull(
+                                listing.lender?.displayName?.ifBlank { null } ?: "Lender",
+                                (listing.lender?.city?.ifBlank { null } ?: listing.city.ifBlank { null })
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                    DetailSection("Description") {
+                        Text(
+                            text = listing.description.ifBlank { "No description provided." },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
 
-                    Text(
-                        text = "Description",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = listing.description.ifBlank { "No description provided." },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    if (listing.measurements.isNotEmpty()) {
+                        DetailSection("Measurements") {
+                            MeasurementsTable(listing.measurements)
+                        }
+                    }
+
+                    DetailSection("Available dates") {
+                        val today = remember { LocalDate.now() }
+                        val upcoming = listing.availability
+                            .mapNotNull { parseDateRange(it.startDate, it.endDate) }
+                            .filter { !it.end.isBefore(today) }
+                        if (upcoming.isEmpty()) {
+                            Text(
+                                text = "No dates listed. Ask the lender in chat.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            upcoming.forEach { range ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DateRange,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = range.format(), style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
 
                     val depositNote = listing.depositNote
                     if (!depositNote.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Deposit",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = depositNote, style = MaterialTheme.typography.bodyMedium)
+                        DetailSection("Deposit") {
+                            Text(text = depositNote, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
 
                     if (listing.lenderId != currentUserId) {
@@ -416,11 +442,96 @@ fun ListingDetailScreen(
                             Text("Message Lender")
                         }
                     }
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
     }
 }
+
+@Composable
+private fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+    Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    Spacer(modifier = Modifier.height(8.dp))
+    Column(content = content)
+}
+
+/** Swipeable photos with page dots, or the placeholder when there are none. */
+@Composable
+private fun PhotoCarousel(photos: List<ListingPhoto>, title: String) {
+    val shape = RoundedCornerShape(12.dp)
+    if (photos.isEmpty()) {
+        NoPhotoPlaceholder(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(260.dp)
+                .clip(shape)
+        )
+        return
+    }
+    val pagerState = rememberPagerState { photos.size }
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .clip(shape)
+    ) { page ->
+        AsyncImage(
+            model = photos[page].storagePath,
+            contentDescription = "$title, photo ${page + 1} of ${photos.size}",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+    if (photos.size > 1) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        ) {
+            repeat(photos.size) { index ->
+                val selected = pagerState.currentPage == index
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 3.dp)
+                        .size(if (selected) 8.dp else 6.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MeasurementsTable(measurements: List<ListingMeasurement>) {
+    Column {
+        measurements.forEachIndexed { index, m ->
+            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(modifier = Modifier.padding(vertical = 8.dp)) {
+                Text(
+                    text = m.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${formatMeasurementValue(m.value)} ${m.unit}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+private fun formatMeasurementValue(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 // --- INBOX SCREEN ---
 @Composable

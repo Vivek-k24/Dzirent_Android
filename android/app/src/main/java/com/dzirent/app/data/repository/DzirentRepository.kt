@@ -276,9 +276,24 @@ class DzirentRepository {
                 throw fail("load listings", fallbackEx)
             }
         }
-        return listings
+        val nearby = listings
             .map { it.copy(distanceKm = haversineKm(lat, lng, it.approxLat, it.approxLng)) }
             .filter { (it.distanceKm ?: 0.0) <= radiusKm }
+        return withPhotos(nearby)
+    }
+
+    /** Fills in photos for many listings with one batched "in" query. */
+    private suspend fun withPhotos(listings: List<Listing>): List<Listing> {
+        if (listings.isEmpty()) return listings
+        val byListing = try {
+            postgrest.from("listing_photos").select {
+                filter { isIn("listing_id", listings.map { it.id }) }
+                order("position", Order.ASCENDING)
+            }.decodeList<ListingPhoto>().groupBy { it.listingId }
+        } catch (e: Exception) {
+            throw fail("load listing photos", e)
+        }
+        return listings.map { it.copy(photos = byListing[it.id].orEmpty()) }
     }
 
     /** Listing with its photos, measurements, availability and lender, in one request. */

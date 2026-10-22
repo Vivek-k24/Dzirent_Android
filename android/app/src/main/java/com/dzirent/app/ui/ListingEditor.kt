@@ -36,6 +36,8 @@ import com.dzirent.app.data.PhotoItem
 import com.dzirent.app.data.PublishStepException
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
+import com.dzirent.app.util.parseDateRange
+import com.dzirent.app.util.validateMeasurements
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -142,12 +144,18 @@ private fun ListingEditorForm(
     var sizeLabel by rememberSaveable { mutableStateOf(original?.sizeLabel.orEmpty()) }
     var description by rememberSaveable { mutableStateOf(original?.description.orEmpty()) }
     var priceNote by rememberSaveable { mutableStateOf(original?.priceNote.orEmpty()) }
-    var retailValueText by rememberSaveable { mutableStateOf(original?.retailValue?.let { formatMoney(it) }.orEmpty()) }
+    var retailValueText by rememberSaveable { mutableStateOf(original?.retailValue?.let { formatNumber(it) }.orEmpty()) }
     var depositNote by rememberSaveable { mutableStateOf(original?.depositNote.orEmpty()) }
     var photos by remember { mutableStateOf<List<PhotoItem>>(original?.photos.orEmpty().map { PhotoItem.Existing(it) }) }
-    // Edited in Phase 4's measurements and availability sections; kept as loaded until then.
-    val measurements by remember { mutableStateOf(original?.measurements.orEmpty()) }
-    val availability by remember { mutableStateOf(original?.availability.orEmpty()) }
+    // One unit per listing; inches by default for the US pilot.
+    var unit by rememberSaveable { mutableStateOf(original?.measurements?.firstOrNull()?.unit ?: "in") }
+    var measurementRows by remember {
+        mutableStateOf(original?.measurements.orEmpty().map { MeasurementRow(it.id, it.label, formatNumber(it.value)) })
+    }
+    var ranges by remember {
+        mutableStateOf(original?.availability.orEmpty().mapNotNull { parseDateRange(it.startDate, it.endDate) })
+    }
+    var showAllMeasurementErrors by remember { mutableStateOf(false) }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var publishState by remember { mutableStateOf<PublishState>(PublishState.Idle) }
@@ -163,6 +171,10 @@ private fun ListingEditorForm(
         if (description.trim().length > 1000) return "Description can be up to 1000 characters."
         if (retailValueText.isNotBlank() && (retailValueText.toDoubleOrNull() ?: 0.0) <= 0.0) {
             return "Retail value must be a number above 0, or leave it empty."
+        }
+        if (validateMeasurements(measurementRows.map { it.toInput() }).any { it != null }) {
+            showAllMeasurementErrors = true
+            return "Fix the highlighted measurements, or remove those rows."
         }
         return null
     }
@@ -199,8 +211,23 @@ private fun ListingEditorForm(
                 lender = null
             ),
             photos = photos,
-            measurements = measurements.map { it.copy(listingId = listingId) },
-            availability = availability.map { it.copy(listingId = listingId) }
+            measurements = measurementRows.filterNot { it.toInput().isBlank }.map { row ->
+                ListingMeasurement(
+                    id = row.key,
+                    listingId = listingId,
+                    label = row.label.trim(),
+                    value = row.valueText.trim().toDouble(),
+                    unit = unit
+                )
+            },
+            availability = ranges.sortedBy { it.start }.map { range ->
+                Availability(
+                    id = UUID.randomUUID().toString(),
+                    listingId = listingId,
+                    startDate = range.start.toString(),
+                    endDate = range.end.toString()
+                )
+            }
         )
         scope.launch {
             publishState = PublishState.Running("Starting...")
@@ -332,6 +359,22 @@ private fun ListingEditorForm(
             onRetailValueChange = { retailValueText = it },
             depositNote = depositNote,
             onDepositNoteChange = { depositNote = it }
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        MeasurementsSection(
+            category = category,
+            unit = unit,
+            onUnitChange = { unit = it },
+            rows = measurementRows,
+            onRowsChange = { measurementRows = it },
+            showAllErrors = showAllMeasurementErrors
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        AvailabilitySection(
+            ranges = ranges,
+            onRangesChange = { ranges = it }
         )
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -564,7 +607,8 @@ private fun PhotoThumb(
 private fun <T> List<T>.swap(i: Int, j: Int): List<T> =
     toMutableList().also { val tmp = it[i]; it[i] = it[j]; it[j] = tmp }
 
-private fun formatMoney(value: Double): String =
+/** 40.0 -> "40", 32.5 -> "32.5" for editable text fields. */
+private fun formatNumber(value: Double): String =
     if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 /** Optional retail value and deposit note, with a deposit tip for valuable pieces. */
