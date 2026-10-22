@@ -1,5 +1,6 @@
 package com.dzirent.app.data
 
+import com.dzirent.app.BuildConfig
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
@@ -14,11 +15,11 @@ import io.github.jan.supabase.storage.storage
 /**
  * Supabase Configuration for Dzirent Android App
  *
- * Put your SUPABASE_URL and SUPABASE_ANON_KEY below.
+ * SUPABASE_URL and SUPABASE_ANON_KEY are loaded from local.properties via BuildConfig.
  */
 object SupabaseConfig {
-    const val SUPABASE_URL = "https://your-project-id.supabase.co"
-    const val SUPABASE_ANON_KEY = "your-anon-key-here"
+    val SUPABASE_URL: String = BuildConfig.SUPABASE_URL
+    val SUPABASE_ANON_KEY: String = BuildConfig.SUPABASE_ANON_KEY
 
     val client: SupabaseClient by lazy {
         createSupabaseClient(
