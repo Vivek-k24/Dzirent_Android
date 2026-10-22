@@ -7,6 +7,7 @@ import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.PostgresAction
@@ -54,7 +55,7 @@ class DzirentRepository {
             "password should" in raw || "weak_password" in raw ->
                 "That password is too weak. Use at least 6 characters."
             "rate limit" in raw || "too many requests" in raw ->
-                "Too many attempts. Please wait a minute and try again."
+                "Too many attempts. Please try again later."
             "unable to resolve host" in raw || "failed to connect" in raw || "timeout" in raw || "timed out" in raw ->
                 "Can't reach the server. Check your internet connection and try again."
             "row-level security" in raw || "permission denied" in raw || "jwt" in raw ->
@@ -135,7 +136,13 @@ class DzirentRepository {
         try {
             auth.signOut()
         } catch (e: Exception) {
-            throw fail("log out", e)
+            // The server call failed (e.g. offline); still forget the session on this device.
+            logError("log out", e)
+            try {
+                auth.clearSession()
+            } catch (clearEx: Exception) {
+                throw fail("log out", clearEx)
+            }
         }
     }
 
@@ -165,6 +172,18 @@ class DzirentRepository {
             }
         } catch (e: Exception) {
             throw fail("save your profile", e)
+        }
+    }
+
+    /** Changes only the role column, so other profile fields are never overwritten. */
+    suspend fun updateRole(userId: String, role: String): Profile {
+        try {
+            postgrest.from("profiles").update(buildJsonObject { put("role", role) }) {
+                filter { eq("id", userId) }
+            }
+            return getCurrentProfile() ?: throw DzirentException("Couldn't load your profile. Please try again.")
+        } catch (e: Exception) {
+            throw fail("change what you want to do", e)
         }
     }
 
@@ -389,6 +408,25 @@ class DzirentRepository {
         return channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "messages"
         }.map { action -> action.decodeRecord() }
+    }
+
+    // --- RENTALS ---
+
+    /** Rentals where I am the renter, with the listing (and its photos) and the lender embedded. */
+    suspend fun getMyRentals(renterId: String): List<Rental> {
+        return try {
+            postgrest.from("rentals").select(
+                Columns.raw(
+                    "*, listing:listings(*, photos:listing_photos(*)), " +
+                        "lender:profiles!rentals_lender_id_fkey(id, display_name, city)"
+                )
+            ) {
+                filter { eq("renter_id", renterId) }
+                order("updated_at", Order.DESCENDING)
+            }.decodeList<Rental>()
+        } catch (e: Exception) {
+            throw fail("load your rentals", e)
+        }
     }
 
     // --- MODERATION & OUTCOMES ---

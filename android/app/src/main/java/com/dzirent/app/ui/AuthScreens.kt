@@ -88,11 +88,23 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var resetSentTo by remember { mutableStateOf<String?>(null) }
+    var isSendingReset by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     if (isLoading) {
         LoadingView(message = "Signing in...")
         return
+    }
+
+    resetSentTo?.let { sentTo ->
+        AlertDialog(
+            onDismissRequest = { resetSentTo = null },
+            icon = { Icon(Icons.Default.Mail, contentDescription = null) },
+            title = { Text("Check your email") },
+            text = { Text("If an account exists for $sentTo, we sent a link to reset your password.") },
+            confirmButton = { TextButton(onClick = { resetSentTo = null }) { Text("OK") } }
+        )
     }
 
     Surface(
@@ -166,7 +178,31 @@ fun LoginScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(24.dp))
+            TextButton(
+                onClick = {
+                    val trimmedEmail = email.trim()
+                    if (trimmedEmail.isBlank()) {
+                        errorMessage = "Enter your email above, then tap Forgot password."
+                        return@TextButton
+                    }
+                    scope.launch {
+                        isSendingReset = true
+                        errorMessage = null
+                        try {
+                            repository.resetPassword(trimmedEmail)
+                            resetSentTo = trimmedEmail
+                        } catch (e: Exception) {
+                            errorMessage = e.userMessage("Couldn't send the reset email. Please try again.")
+                        }
+                        isSendingReset = false
+                    }
+                },
+                enabled = !isSendingReset,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(if (isSendingReset) "Sending..." else "Forgot password?")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
 
             Button(
                 onClick = {
@@ -188,7 +224,7 @@ fun LoginScreen(
                             }
                         } catch (e: Exception) {
                             isLoading = false
-                            errorMessage = e.localizedMessage ?: "Failed to log in. Please check your credentials."
+                            errorMessage = e.userMessage("Failed to log in. Please check your credentials.")
                         }
                     }
                 },
@@ -227,6 +263,8 @@ fun SignUpScreen(
     var city by remember { mutableStateOf("") }
     var selectedRole by remember { mutableStateOf("both") } // 'renter', 'lender', 'both'
     var adultConfirmed by remember { mutableStateOf(false) }
+    var policyAccepted by remember { mutableStateOf(false) }
+    var showPolicy by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -384,7 +422,29 @@ fun SignUpScreen(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            Spacer(modifier = Modifier.height(24.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = policyAccepted,
+                    onCheckedChange = { policyAccepted = it }
+                )
+                Text(
+                    text = DzirentPolicy.SIGN_UP_CONSENT,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            TextButton(
+                onClick = { showPolicy = true },
+                modifier = Modifier.align(Alignment.Start).padding(start = 36.dp)
+            ) {
+                Text("Read how Dzirent works")
+            }
+            if (showPolicy) {
+                HowDzirentWorksDialog(onDismiss = { showPolicy = false })
+            }
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = {
@@ -398,6 +458,10 @@ fun SignUpScreen(
                     }
                     if (!adultConfirmed) {
                         errorMessage = "You must confirm you are 18+ to proceed."
+                        return@Button
+                    }
+                    if (!policyAccepted) {
+                        errorMessage = "Please confirm you understand Dzirent only connects people."
                         return@Button
                     }
                     scope.launch {
@@ -425,7 +489,7 @@ fun SignUpScreen(
                             }
                         } catch (e: Exception) {
                             isLoading = false
-                            errorMessage = e.localizedMessage ?: "Failed to sign up. Please try again."
+                            errorMessage = e.userMessage("Failed to sign up. Please try again.")
                         }
                     }
                 },

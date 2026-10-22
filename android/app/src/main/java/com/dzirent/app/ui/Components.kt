@@ -1,5 +1,6 @@
 package com.dzirent.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -10,6 +11,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.dzirent.app.data.repository.DzirentException
+
+/**
+ * The text to show on screen for an error. Only DzirentException messages are written
+ * for users; anything else could carry URLs or tokens, so it falls back to [fallback].
+ */
+fun Throwable.userMessage(fallback: String = "Something went wrong. Please try again."): String =
+    if (this is DzirentException) message ?: fallback else fallback
+
+/** Shown wherever a listing has no photos (pilot test listings have none). */
+@Composable
+fun NoPhotoPlaceholder(
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
+    Box(
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Checkroom,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(if (compact) 24.dp else 48.dp)
+            )
+            if (!compact) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "No images available · Test only",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun LoadingView(

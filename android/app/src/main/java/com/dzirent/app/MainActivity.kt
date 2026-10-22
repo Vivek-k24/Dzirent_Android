@@ -10,13 +10,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.Profile
+import com.dzirent.app.data.model.Roles
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.ui.*
 import com.dzirent.app.ui.theme.DzirentTheme
@@ -122,6 +125,21 @@ fun AuthNavHost(
     }
 }
 
+/** A bottom-bar destination. */
+private data class TabItem(val route: String, val label: String, val icon: ImageVector)
+
+private val TabBrowse = TabItem("browse", "Browse", Icons.Default.Search)
+private val TabInbox = TabItem("inbox", "Inbox", Icons.Default.MailOutline)
+private val TabList = TabItem("list", "List", Icons.Default.AddCircleOutline)
+private val TabCloset = TabItem("closet", "My Closet", Icons.Default.Checkroom)
+private val TabRentals = TabItem("rentals", "My Rentals", Icons.Default.ShoppingBag)
+private val TabProfile = TabItem("profile", "Profile", Icons.Default.Person)
+
+private fun tabsFor(role: String): List<TabItem> = when (role) {
+    Roles.LENDER, Roles.BOTH -> listOf(TabBrowse, TabInbox, TabList, TabCloset, TabProfile)
+    else -> listOf(TabBrowse, TabInbox, TabRentals, TabProfile)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScaffold(
@@ -132,94 +150,48 @@ fun MainAppScaffold(
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var currentTab by remember { mutableStateOf("browse") }
-    val userRole = userProfile.role
+    // Profile lives here so a role change on the Profile screen updates the bottom bar at once.
+    var profile by remember { mutableStateOf(userProfile) }
+    var currentTab by rememberSaveable { mutableStateOf(TabBrowse.route) }
+    val tabs = tabsFor(profile.role)
+
+    fun openTab(route: String) {
+        currentTab = route
+        navController.navigate(route) {
+            popUpTo(TabBrowse.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    // If a role change removed the tab we're on, fall back to Browse.
+    LaunchedEffect(profile.role) {
+        if (tabs.none { it.route == currentTab }) {
+            currentTab = TabBrowse.route
+            navController.navigate(TabBrowse.route) {
+                popUpTo(TabBrowse.route) { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {
             NavigationBar {
-                // 1. Browse (Default)
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Search, contentDescription = "Browse") },
-                    label = { Text("Browse") },
-                    selected = currentTab == "browse",
-                    onClick = {
-                        currentTab = "browse"
-                        navController.navigate("browse") {
-                            popUpTo("browse") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                )
-
-                // 2. Inbox
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.MailOutline, contentDescription = "Inbox") },
-                    label = { Text("Inbox") },
-                    selected = currentTab == "inbox",
-                    onClick = {
-                        currentTab = "inbox"
-                        navController.navigate("inbox") {
-                            popUpTo("browse") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                )
-
-                // 3. List (only if lender or both)
-                if (userRole == "lender" || userRole == "both") {
+                tabs.forEach { tab ->
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.AddCircleOutline, contentDescription = "List") },
-                        label = { Text("List") },
-                        selected = currentTab == "list",
-                        onClick = {
-                            currentTab = "list"
-                            navController.navigate("list") {
-                                popUpTo("browse") { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label, maxLines = 1) },
+                        selected = currentTab == tab.route,
+                        onClick = { openTab(tab.route) }
                     )
                 }
-
-                // 4. My Closet
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Checkroom, contentDescription = "My Closet") },
-                    label = { Text("My Closet") },
-                    selected = currentTab == "closet",
-                    onClick = {
-                        currentTab = "closet"
-                        navController.navigate("closet") {
-                            popUpTo("browse") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                )
-
-                // 5. Profile
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-                    label = { Text("Profile") },
-                    selected = currentTab == "profile",
-                    onClick = {
-                        currentTab = "profile"
-                        navController.navigate("profile") {
-                            popUpTo("browse") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                )
             }
         }
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = "browse",
+            startDestination = TabBrowse.route,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("browse") {
@@ -235,7 +207,7 @@ fun MainAppScaffold(
                 ListingDetailScreen(
                     repository = repository,
                     listingId = listingId,
-                    currentUserId = userProfile.id,
+                    currentUserId = profile.id,
                     onBack = { navController.popBackStack() },
                     onMessageLender = { targetListingId, lenderId ->
                         // Create the conversation (or reuse the existing one), then open it.
@@ -243,14 +215,14 @@ fun MainAppScaffold(
                             try {
                                 val conversation = repository.getOrCreateConversation(
                                     listingId = targetListingId,
-                                    renterId = userProfile.id,
+                                    renterId = profile.id,
                                     lenderId = lenderId
                                 )
                                 navController.navigate("chat/${conversation.id}")
                             } catch (e: Exception) {
                                 Toast.makeText(
                                     context,
-                                    e.message ?: "Couldn't open the chat. Please try again.",
+                                    e.userMessage("Couldn't open the chat. Please try again."),
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -261,7 +233,7 @@ fun MainAppScaffold(
             composable("inbox") {
                 InboxScreen(
                     repository = repository,
-                    currentUserId = userProfile.id,
+                    currentUserId = profile.id,
                     onConversationClick = { conv ->
                         navController.navigate("chat/${conv.id}")
                     }
@@ -272,31 +244,43 @@ fun MainAppScaffold(
                 ChatScreen(
                     repository = repository,
                     conversationId = conversationId,
-                    currentUserId = userProfile.id,
+                    currentUserId = profile.id,
                     onBack = { navController.popBackStack() }
                 )
             }
             composable("list") {
                 CreateListingScreen(
                     repository = repository,
-                    currentUserId = userProfile.id,
-                    onListingCreated = {
-                        currentTab = "closet"
-                        navController.navigate("closet")
-                    }
+                    currentUserId = profile.id,
+                    onListingCreated = { openTab(TabCloset.route) }
                 )
             }
             composable("closet") {
                 MyClosetScreen(
                     repository = repository,
-                    currentUserId = userProfile.id
+                    currentUserId = profile.id,
+                    showRentalsTab = profile.role == Roles.BOTH,
+                    onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") }
+                )
+            }
+            composable("rentals") {
+                MyRentalsScreen(
+                    repository = repository,
+                    currentUserId = profile.id,
+                    onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") }
                 )
             }
             composable("profile") {
                 ProfileScreen(
                     repository = repository,
+                    profile = profile,
+                    onProfileUpdated = { updated -> profile = updated },
+                    onOpenPolicy = { navController.navigate("policy") },
                     onSignOut = onSignOut
                 )
+            }
+            composable("policy") {
+                HowDzirentWorksScreen(onBack = { navController.popBackStack() })
             }
         }
     }

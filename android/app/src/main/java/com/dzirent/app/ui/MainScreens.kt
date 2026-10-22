@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,16 +20,20 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
+import com.dzirent.app.util.formatDateRange
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -62,7 +67,7 @@ fun BrowseScreen(
                 )
                 uiState = UiState.Success(listings)
             } catch (e: Exception) {
-                uiState = UiState.Error(e.localizedMessage ?: "Failed to load listings.")
+                uiState = UiState.Error(e.userMessage("Failed to load listings."))
             }
         }
     }
@@ -174,20 +179,11 @@ fun ListingCard(listing: Listing, onClick: () -> Unit) {
                         .height(140.dp)
                 )
             } else {
-                Box(
+                NoPhotoPlaceholder(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(140.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Checkroom,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(48.dp)
-                    )
-                }
+                )
             }
 
             Column(modifier = Modifier.padding(12.dp)) {
@@ -240,7 +236,7 @@ fun ListingDetailScreen(
                 val detail = repository.getListingDetail(listingId)
                 uiState = UiState.Success(detail)
             } catch (e: Exception) {
-                uiState = UiState.Error(e.localizedMessage ?: "Failed to load listing details.")
+                uiState = UiState.Error(e.userMessage("Failed to load listing details."))
             }
         }
     }
@@ -282,20 +278,12 @@ fun ListingDetailScreen(
                                 .clip(RoundedCornerShape(12.dp))
                         )
                     } else {
-                        Box(
+                        NoPhotoPlaceholder(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(200.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Checkroom,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp)
-                            )
-                        }
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -336,8 +324,22 @@ fun ListingDetailScreen(
                         style = MaterialTheme.typography.bodyMedium
                     )
 
+                    val depositNote = listing.depositNote
+                    if (!depositNote.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Deposit",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = depositNote, style = MaterialTheme.typography.bodyMedium)
+                    }
+
                     if (listing.lenderId != currentUserId) {
-                        Spacer(modifier = Modifier.height(32.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
+                        PolicyNotice(text = DzirentPolicy.LISTING_NOTICE)
+                        Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = { onMessageLender(listing.id, listing.lenderId) },
                             modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -370,7 +372,7 @@ fun InboxScreen(
                 val list = repository.getConversations(currentUserId)
                 uiState = UiState.Success(list)
             } catch (e: Exception) {
-                uiState = UiState.Error(e.localizedMessage ?: "Failed to load conversations.")
+                uiState = UiState.Error(e.userMessage("Failed to load conversations."))
             }
         }
     }
@@ -447,6 +449,9 @@ fun ChatScreen(
     var messagesState by remember { mutableStateOf<UiState<List<Message>>>(UiState.Loading) }
     var textInput by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val safetyTips = remember { SafetyTipStore(context) }
+    var showSafetyTip by remember(conversationId) { mutableStateOf(!safetyTips.isDismissed(conversationId)) }
 
     fun loadMessages() {
         scope.launch {
@@ -455,7 +460,7 @@ fun ChatScreen(
                 val msgs = repository.getMessages(conversationId)
                 messagesState = UiState.Success(msgs)
             } catch (e: Exception) {
-                messagesState = UiState.Error(e.localizedMessage ?: "Failed to load messages.")
+                messagesState = UiState.Error(e.userMessage("Failed to load messages."))
             }
         }
     }
@@ -473,6 +478,17 @@ fun ChatScreen(
                 }
             }
         )
+
+        if (showSafetyTip) {
+            PolicyNotice(
+                text = DzirentPolicy.CHAT_SAFETY_TIP,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                onDismiss = {
+                    safetyTips.dismiss(conversationId)
+                    showSafetyTip = false
+                }
+            )
+        }
 
         Box(modifier = Modifier.weight(1f)) {
             when (val state = messagesState) {
@@ -565,6 +581,8 @@ fun CreateListingScreen(
     var description by remember { mutableStateOf("") }
     var priceNote by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }
+    var retailValueText by remember { mutableStateOf("") }
+    var depositNote by remember { mutableStateOf("") }
 
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -649,12 +667,25 @@ fun CreateListingScreen(
             label = { Text("Description") },
             modifier = Modifier.fillMaxWidth().height(120.dp)
         )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        DepositFields(
+            retailValueText = retailValueText,
+            onRetailValueChange = { retailValueText = it },
+            depositNote = depositNote,
+            onDepositNoteChange = { depositNote = it }
+        )
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
             onClick = {
                 if (title.isBlank() || sizeLabel.isBlank() || priceNote.isBlank()) {
                     errorMessage = "Please enter Title, Size, and Price Note."
+                    return@Button
+                }
+                val retailValue = retailValueText.trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()
+                if (retailValueText.isNotBlank() && (retailValue == null || retailValue <= 0)) {
+                    errorMessage = "Retail value must be a number above 0, or leave it empty."
                     return@Button
                 }
                 scope.launch {
@@ -672,14 +703,16 @@ fun CreateListingScreen(
                             city = if (city.isBlank()) "Nearby" else city.trim(),
                             approxLat = 0.0,
                             approxLng = 0.0,
-                            status = "active"
+                            status = "active",
+                            retailValue = retailValue,
+                            depositNote = depositNote.trim().ifBlank { null }
                         )
                         repository.createListing(newListing)
                         isSubmitting = false
                         onListingCreated()
                     } catch (e: Exception) {
                         isSubmitting = false
-                        errorMessage = e.localizedMessage ?: "Failed to publish listing. Please try again."
+                        errorMessage = e.userMessage("Failed to publish listing. Please try again.")
                     }
                 }
             },
@@ -690,9 +723,74 @@ fun CreateListingScreen(
     }
 }
 
+/** Optional retail value and deposit note, with a deposit tip for valuable pieces. */
+@Composable
+fun DepositFields(
+    retailValueText: String,
+    onRetailValueChange: (String) -> Unit,
+    depositNote: String,
+    onDepositNoteChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = retailValueText,
+        onValueChange = { input -> onRetailValueChange(input.filter { it.isDigit() || it == '.' }) },
+        label = { Text("Retail value (\$) - optional") },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    val retailValue = retailValueText.toDoubleOrNull()
+    if (retailValue != null && retailValue >= DzirentPolicy.DEPOSIT_SUGGESTION_USD) {
+        Spacer(modifier = Modifier.height(8.dp))
+        PolicyNotice(text = DzirentPolicy.DEPOSIT_TIP)
+    }
+    Spacer(modifier = Modifier.height(12.dp))
+    OutlinedTextField(
+        value = depositNote,
+        onValueChange = { if (it.length <= DEPOSIT_NOTE_MAX) onDepositNoteChange(it) },
+        label = { Text("Deposit note - optional") },
+        placeholder = { Text("e.g. \$40 refundable deposit, cash at pickup") },
+        supportingText = { Text("${depositNote.length}/$DEPOSIT_NOTE_MAX") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+private const val DEPOSIT_NOTE_MAX = 120
+
 // --- MY CLOSET SCREEN ---
+
+/**
+ * Lenders see their listings. "Both" users also get a "My Rentals" tab, since they have
+ * no separate My Rentals entry in the bottom bar.
+ */
 @Composable
 fun MyClosetScreen(
+    repository: DzirentRepository,
+    currentUserId: String,
+    showRentalsTab: Boolean,
+    onOpenChat: (conversationId: String) -> Unit
+) {
+    if (!showRentalsTab) {
+        MyListingsContent(repository = repository, currentUserId = currentUserId)
+        return
+    }
+
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = selectedTab) {
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Listings") })
+            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("My Rentals") })
+        }
+        when (selectedTab) {
+            0 -> MyListingsContent(repository = repository, currentUserId = currentUserId)
+            else -> MyRentalsScreen(repository = repository, currentUserId = currentUserId, onOpenChat = onOpenChat)
+        }
+    }
+}
+
+@Composable
+private fun MyListingsContent(
     repository: DzirentRepository,
     currentUserId: String
 ) {
@@ -706,7 +804,7 @@ fun MyClosetScreen(
                 val list = repository.getMyListings(currentUserId)
                 uiState = UiState.Success(list)
             } catch (e: Exception) {
-                uiState = UiState.Error(e.localizedMessage ?: "Failed to load your closet.")
+                uiState = UiState.Error(e.userMessage("Failed to load your closet."))
             }
         }
     }
@@ -775,94 +873,339 @@ fun MyClosetScreen(
     }
 }
 
-// --- PROFILE SCREEN ---
+// --- MY RENTALS SCREEN ---
 @Composable
-fun ProfileScreen(
+fun MyRentalsScreen(
     repository: DzirentRepository,
-    onSignOut: () -> Unit
+    currentUserId: String,
+    onOpenChat: (conversationId: String) -> Unit
 ) {
-    var uiState by remember { mutableStateOf<UiState<Profile?>>(UiState.Loading) }
+    var uiState by remember { mutableStateOf<UiState<List<Rental>>>(UiState.Loading) }
     val scope = rememberCoroutineScope()
 
-    fun loadProfile() {
+    fun loadRentals() {
         scope.launch {
             uiState = UiState.Loading
             try {
-                val profile = repository.getCurrentProfile()
-                uiState = UiState.Success(profile)
+                uiState = UiState.Success(repository.getMyRentals(currentUserId))
             } catch (e: Exception) {
-                uiState = UiState.Error(e.localizedMessage ?: "Failed to load profile.")
+                uiState = UiState.Error(e.userMessage("Couldn't load your rentals. Please try again."))
             }
         }
     }
 
-    LaunchedEffect(Unit) {
-        loadProfile()
+    LaunchedEffect(currentUserId) {
+        loadRentals()
     }
 
     when (val state = uiState) {
-        is UiState.Loading -> LoadingView(message = "Loading profile...")
-        is UiState.Error -> ErrorView(message = state.message, onRetry = { loadProfile() })
+        is UiState.Loading -> LoadingView(message = "Loading your rentals...")
+        is UiState.Error -> ErrorView(message = state.message, onRetry = { loadRentals() })
         is UiState.Success -> {
-            val profile = state.data
-            if (profile == null) {
+            // Cancelled deals never happened, so they aren't rentals worth listing.
+            val active = state.data.filter { it.status == "active" }
+            val past = state.data.filter { it.status == "returned" }
+            if (active.isEmpty() && past.isEmpty()) {
                 EmptyView(
-                    title = "No Profile Found",
-                    description = "Could not locate account profile details.",
-                    icon = Icons.Default.Person
+                    title = "No active rentals yet",
+                    description = "No active rentals yet. When you rent something, mark it as rented in the chat and it will show up here.",
+                    icon = Icons.Default.ShoppingBag
                 )
             } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(80.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = profile.displayName,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Role: ${profile.role.replaceFirstChar { it.uppercase() }}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Text(
-                        text = "City: ${profile.city}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-
-                    Spacer(modifier = Modifier.height(48.dp))
-
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                repository.signOut()
-                                onSignOut()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign Out")
+                    if (active.isNotEmpty()) {
+                        item { SectionHeader("Active") }
+                        items(active, key = { it.conversationId }) { rental ->
+                            RentalRow(rental = rental, onClick = { onOpenChat(rental.conversationId) })
+                        }
+                    }
+                    if (past.isNotEmpty()) {
+                        item { SectionHeader("Past") }
+                        items(past, key = { it.conversationId }) { rental ->
+                            RentalRow(rental = rental, onClick = { onOpenChat(rental.conversationId) })
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
+private fun RentalRow(rental: Rental, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ListingThumbnail(listing = rental.listing, size = 56.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = rental.listing?.title ?: "Listing no longer available",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "From ${rental.lender?.displayName?.ifBlank { null } ?: "a lender"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = formatDateRange(rental.startDate, rental.endDate) ?: "Dates not set",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            AssistChip(
+                onClick = onClick,
+                label = { Text(if (rental.status == "active") "Active" else "Returned") }
+            )
+        }
+    }
+}
+
+/** Square first-photo thumbnail, or the no-photo placeholder. */
+@Composable
+fun ListingThumbnail(listing: Listing?, size: androidx.compose.ui.unit.Dp) {
+    val photoUrl = listing?.photos?.minByOrNull { it.position }?.storagePath
+    val modifier = Modifier
+        .size(size)
+        .clip(RoundedCornerShape(8.dp))
+    if (!photoUrl.isNullOrBlank()) {
+        AsyncImage(
+            model = photoUrl,
+            contentDescription = listing.title,
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+        )
+    } else {
+        NoPhotoPlaceholder(modifier = modifier, compact = true)
+    }
+}
+
+// --- PROFILE SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileScreen(
+    repository: DzirentRepository,
+    profile: Profile,
+    onProfileUpdated: (Profile) -> Unit,
+    onOpenPolicy: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(true) }
+    var refreshError by remember { mutableStateOf<String?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+    var actionError by remember { mutableStateOf<String?>(null) }
+    // Set when switching to Rent while listings are still active.
+    var pendingRenterSwitch by remember { mutableStateOf<List<Listing>?>(null) }
+
+    fun refresh() {
+        scope.launch {
+            isRefreshing = true
+            refreshError = null
+            try {
+                repository.getCurrentProfile()?.let(onProfileUpdated)
+            } catch (e: Exception) {
+                refreshError = e.userMessage("Couldn't refresh your profile.")
+            }
+            isRefreshing = false
+        }
+    }
+
+    fun saveRole(role: String, pauseFirst: List<Listing> = emptyList()) {
+        scope.launch {
+            isSaving = true
+            actionError = null
+            try {
+                pauseFirst.forEach { repository.toggleListingStatus(it.id, "paused") }
+                onProfileUpdated(repository.updateRole(profile.id, role))
+            } catch (e: Exception) {
+                actionError = e.userMessage("Couldn't save your choice. Please try again.")
+            }
+            isSaving = false
+        }
+    }
+
+    fun onRoleSelected(role: String) {
+        if (role == profile.role || isSaving) return
+        if (role != Roles.RENTER) {
+            saveRole(role)
+            return
+        }
+        // Renters have no My Closet tab, so offer to pause active listings first.
+        scope.launch {
+            isSaving = true
+            actionError = null
+            try {
+                val active = repository.getMyListings(profile.id).filter { it.status == "active" }
+                isSaving = false
+                if (active.isEmpty()) saveRole(role) else pendingRenterSwitch = active
+            } catch (e: Exception) {
+                isSaving = false
+                actionError = e.userMessage("Couldn't save your choice. Please try again.")
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refresh()
+    }
+
+    pendingRenterSwitch?.let { active ->
+        AlertDialog(
+            onDismissRequest = { pendingRenterSwitch = null },
+            title = { Text("Switch to Rent only?") },
+            text = {
+                Text(
+                    "You have ${active.size} active listing${if (active.size == 1) "" else "s"}. " +
+                        "Renters don't have My Closet, so we'll pause them. Switch back to Lend or Both any time to turn them on again."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRenterSwitch = null
+                    saveRole(Roles.RENTER, pauseFirst = active)
+                }) { Text("Pause and switch") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRenterSwitch = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        refreshError?.let { message ->
+            PolicyNotice(text = message, modifier = Modifier.padding(bottom = 8.dp))
+            TextButton(onClick = { refresh() }) { Text("Retry") }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Icon(
+            imageVector = Icons.Default.AccountCircle,
+            contentDescription = null,
+            modifier = Modifier.size(80.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = profile.displayName.ifBlank { "Your profile" },
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = profile.city.ifBlank { "No city set" },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Text(
+            text = "Role: ${roleLabel(profile.role)}",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.secondary
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "I want to:",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        val roleOptions = listOf(Roles.RENTER to "Rent", Roles.LENDER to "Lend", Roles.BOTH to "Both")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            roleOptions.forEachIndexed { index, (role, label) ->
+                SegmentedButton(
+                    selected = profile.role == role,
+                    onClick = { onRoleSelected(role) },
+                    enabled = !isSaving,
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = roleOptions.size)
+                ) {
+                    Text(label)
+                }
+            }
+        }
+        if (isSaving) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        actionError?.let { message ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        ListItem(
+            headlineContent = { Text(DzirentPolicy.TITLE) },
+            leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            modifier = Modifier.clickable { onOpenPolicy() }
+        )
+        HorizontalDivider()
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = {
+                scope.launch {
+                    isSaving = true
+                    actionError = null
+                    try {
+                        repository.signOut()
+                        onSignOut()
+                    } catch (e: Exception) {
+                        isSaving = false
+                        actionError = e.userMessage("Couldn't sign out. Please try again.")
+                    }
+                }
+            },
+            enabled = !isSaving,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ),
+            modifier = Modifier.fillMaxWidth().height(50.dp)
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Sign Out")
+        }
+    }
+}
+
+private fun roleLabel(role: String) = when (role) {
+    Roles.LENDER -> "Lender"
+    Roles.BOTH -> "Renter and lender"
+    else -> "Renter"
 }

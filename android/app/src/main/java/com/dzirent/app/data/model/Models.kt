@@ -33,6 +33,8 @@ data class Listing(
     @SerialName("approx_lng") val approxLng: Double,
     val status: String, // 'active' | 'paused'
     @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("retail_value") val retailValue: Double? = null,
+    @SerialName("deposit_note") val depositNote: String? = null,
     val photos: List<ListingPhoto> = emptyList(),
     val measurements: List<ListingMeasurement> = emptyList(),
     val availability: List<Availability> = emptyList(),
@@ -102,12 +104,38 @@ data class Report(
 )
 
 @Serializable
+data class Rental(
+    val id: String? = null,
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("listing_id") val listingId: String,
+    @SerialName("renter_id") val renterId: String,
+    @SerialName("lender_id") val lenderId: String,
+    val status: String = "active", // 'active' | 'returned' | 'cancelled'
+    @SerialName("start_date") val startDate: String? = null,
+    @SerialName("end_date") val endDate: String? = null,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    // Embedded via select(), never written.
+    val listing: Listing? = null,
+    val lender: Profile? = null
+)
+
+@Serializable
 data class RentalOutcome(
     @SerialName("conversation_id") val conversationId: String,
     @SerialName("user_id") val userId: String,
     val happened: Boolean,
     @SerialName("answered_at") val answeredAt: String
 )
+
+object Roles {
+    const val RENTER = "renter"
+    const val LENDER = "lender"
+    const val BOTH = "both"
+
+    fun canLend(role: String) = role == LENDER || role == BOTH
+}
 
 object Categories {
     val ALL = listOf(
