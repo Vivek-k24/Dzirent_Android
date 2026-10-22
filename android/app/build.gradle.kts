@@ -1,9 +1,24 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+val rootRepoLocalPropertiesFile = rootProject.file("../local.properties")
+
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+} else if (rootRepoLocalPropertiesFile.exists()) {
+    rootRepoLocalPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+
+val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL") ?: "https://your-project-id.supabase.co"
+val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY") ?: "your-anon-key-here"
 
 android {
     namespace = "com.dzirent.app"
@@ -17,6 +32,9 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {
@@ -37,6 +55,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -74,4 +93,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation(libs.junit)
 }
