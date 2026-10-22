@@ -33,7 +33,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
+import com.dzirent.app.util.DEFAULT_DISTANCE_KM
+import com.dzirent.app.util.DISTANCE_OPTIONS_KM
 import com.dzirent.app.util.formatDateRange
+import com.dzirent.app.util.formatDistance
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -48,21 +51,27 @@ sealed class UiState<out T> {
 @Composable
 fun BrowseScreen(
     repository: DzirentRepository,
+    profile: Profile,
+    onSetLocation: () -> Unit,
     onListingClick: (String) -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var radiusKm by rememberSaveable { mutableIntStateOf(DEFAULT_DISTANCE_KM) }
     var uiState by remember { mutableStateOf<UiState<List<Listing>>>(UiState.Loading) }
     val scope = rememberCoroutineScope()
+    val lat = profile.approxLat
+    val lng = profile.approxLng
 
     fun loadListings() {
+        if (lat == null || lng == null) return
         scope.launch {
             uiState = UiState.Loading
             try {
                 val listings = repository.getNearbyListings(
-                    lat = 0.0,
-                    lng = 0.0,
-                    radiusKm = 25.0,
+                    lat = lat,
+                    lng = lng,
+                    radiusKm = radiusKm.toDouble(),
                     category = selectedCategory
                 )
                 uiState = UiState.Success(listings)
@@ -72,8 +81,19 @@ fun BrowseScreen(
         }
     }
 
-    LaunchedEffect(selectedCategory) {
+    LaunchedEffect(selectedCategory, radiusKm, lat, lng) {
         loadListings()
+    }
+
+    if (lat == null || lng == null) {
+        EmptyView(
+            title = "Set your location",
+            description = "Dzirent shows clothes from closets near you. Set your approximate location to start browsing.",
+            icon = Icons.Default.LocationOff,
+            onAction = onSetLocation,
+            actionLabel = "Set my location"
+        )
+        return
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -117,6 +137,35 @@ fun BrowseScreen(
             }
         }
 
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            item {
+                Icon(
+                    imageVector = Icons.Default.NearMe,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            items(DISTANCE_OPTIONS_KM) { km ->
+                FilterChip(
+                    selected = radiusKm == km,
+                    onClick = { radiusKm = km },
+                    label = { Text("$km km") }
+                )
+            }
+            item {
+                Text(
+                    text = "of ${profile.city.ifBlank { "you" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         when (val state = uiState) {
             is UiState.Loading -> LoadingView(message = "Searching nearby listings...")
             is UiState.Error -> ErrorView(message = state.message, onRetry = { loadListings() })
@@ -128,18 +177,26 @@ fun BrowseScreen(
                 }
 
                 if (filtered.isEmpty()) {
+                    val widest = DISTANCE_OPTIONS_KM.last()
+                    val filtersOn = searchQuery.isNotBlank() || selectedCategory != null
                     EmptyView(
                         title = "No Listings Found",
-                        description = if (searchQuery.isNotBlank() || selectedCategory != null)
-                            "No clothes match your filter criteria. Try clearing search or changing category."
-                        else "No nearby clothes have been posted yet. Check back soon or list your own!",
-                        icon = Icons.Default.SearchOff,
-                        onAction = {
-                            searchQuery = ""
-                            selectedCategory = null
-                            loadListings()
+                        description = when {
+                            filtersOn -> "No clothes match your filters within $radiusKm km. Try clearing search, changing category or a larger distance."
+                            radiusKm < widest -> "Nothing listed within $radiusKm km yet. Try a larger distance."
+                            else -> "No nearby clothes have been posted yet. Check back soon or list your own!"
                         },
-                        actionLabel = "Reset Filters"
+                        icon = Icons.Default.SearchOff,
+                        onAction = if (filtersOn || radiusKm < widest) {
+                            {
+                                searchQuery = ""
+                                selectedCategory = null
+                                radiusKm = widest
+                            }
+                        } else {
+                            { loadListings() }
+                        },
+                        actionLabel = if (filtersOn || radiusKm < widest) "Clear filters, show $widest km" else "Refresh"
                     )
                 } else {
                     LazyVerticalGrid(
@@ -149,7 +206,7 @@ fun BrowseScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filtered) { listing ->
+                        items(filtered, key = { it.id }) { listing ->
                             ListingCard(listing = listing, onClick = { onListingClick(listing.id) })
                         }
                     }
@@ -207,7 +264,10 @@ fun ListingCard(listing: Listing, onClick: () -> Unit) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = listing.city,
+                    text = listOfNotNull(
+                        listing.distanceKm?.let { formatDistance(it) },
+                        listing.city.ifBlank { null }
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -572,7 +632,8 @@ fun ChatScreen(
 @Composable
 fun CreateListingScreen(
     repository: DzirentRepository,
-    currentUserId: String,
+    profile: Profile,
+    onSetLocation: () -> Unit,
     onListingCreated: () -> Unit
 ) {
     var title by remember { mutableStateOf("") }
@@ -580,7 +641,6 @@ fun CreateListingScreen(
     var sizeLabel by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var priceNote by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
     var retailValueText by remember { mutableStateOf("") }
     var depositNote by remember { mutableStateOf("") }
 
@@ -606,6 +666,31 @@ fun CreateListingScreen(
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(16.dp))
+
+        if (!profile.hasLocation) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = NO_LOCATION_TO_PUBLISH,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = onSetLocation) {
+                        Text("Set my location")
+                    }
+                }
+            }
+        } else {
+            Text(
+                text = "Shown near ${profile.city.ifBlank { "your area" }} (approximate, about 1 km)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+            )
+        }
 
         if (errorMessage != null) {
             Card(
@@ -653,15 +738,6 @@ fun CreateListingScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedTextField(
-            value = city,
-            onValueChange = { city = it },
-            label = { Text("City / Area") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
             value = description,
             onValueChange = { description = it },
             label = { Text("Description") },
@@ -679,6 +755,12 @@ fun CreateListingScreen(
 
         Button(
             onClick = {
+                val lat = profile.approxLat
+                val lng = profile.approxLng
+                if (lat == null || lng == null) {
+                    errorMessage = NO_LOCATION_TO_PUBLISH
+                    return@Button
+                }
                 if (title.isBlank() || sizeLabel.isBlank() || priceNote.isBlank()) {
                     errorMessage = "Please enter Title, Size, and Price Note."
                     return@Button
@@ -694,15 +776,16 @@ fun CreateListingScreen(
                     try {
                         val newListing = Listing(
                             id = UUID.randomUUID().toString(),
-                            lenderId = currentUserId,
+                            lenderId = profile.id,
                             title = title.trim(),
                             category = selectedCategory,
                             sizeLabel = sizeLabel.trim(),
                             description = description.trim(),
                             priceNote = priceNote.trim(),
-                            city = if (city.isBlank()) "Nearby" else city.trim(),
-                            approxLat = 0.0,
-                            approxLng = 0.0,
+                            // Listings take the lender's approximate (already rounded) location.
+                            city = profile.city,
+                            approxLat = lat,
+                            approxLng = lng,
                             status = "active",
                             retailValue = retailValue,
                             depositNote = depositNote.trim().ifBlank { null }
@@ -722,6 +805,9 @@ fun CreateListingScreen(
         }
     }
 }
+
+private const val NO_LOCATION_TO_PUBLISH =
+    "Set your location before publishing. Listings show your approximate area (about 1 km), never your exact address."
 
 /** Optional retail value and deposit note, with a deposit tip for valuable pieces. */
 @Composable
@@ -1013,6 +1099,7 @@ fun ProfileScreen(
     repository: DzirentRepository,
     profile: Profile,
     onProfileUpdated: (Profile) -> Unit,
+    onSetLocation: () -> Unit,
     onOpenPolicy: () -> Unit,
     onSignOut: () -> Unit
 ) {
@@ -1166,6 +1253,16 @@ fun ProfileScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        ListItem(
+            headlineContent = { Text("Update my location") },
+            supportingContent = {
+                Text(if (profile.hasLocation) "Near ${profile.city.ifBlank { "your area" }} (about 1 km)" else "Not set yet")
+            },
+            leadingContent = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            modifier = Modifier.clickable { onSetLocation() }
+        )
         HorizontalDivider()
         ListItem(
             headlineContent = { Text(DzirentPolicy.TITLE) },

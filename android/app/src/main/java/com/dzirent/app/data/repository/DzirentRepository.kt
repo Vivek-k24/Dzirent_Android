@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
+import com.dzirent.app.util.haversineKm
+import com.dzirent.app.util.roundCoord
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
@@ -108,8 +110,8 @@ class DzirentRepository {
                 buildJsonObject {
                     put("city", city)
                     if (lat != 0.0 || lng != 0.0) {
-                        put("approx_lat", round2(lat))
-                        put("approx_lng", round2(lng))
+                        put("approx_lat", roundCoord(lat))
+                        put("approx_lng", roundCoord(lng))
                     }
                 }
             ) {
@@ -187,7 +189,39 @@ class DzirentRepository {
         }
     }
 
+    /** Saves my approximate location (rounded to 2 decimals) to my own profile row. */
+    suspend fun updateLocation(userId: String, lat: Double, lng: Double, city: String): Profile {
+        try {
+            postgrest.from("profiles").update(
+                buildJsonObject {
+                    put("approx_lat", roundCoord(lat))
+                    put("approx_lng", roundCoord(lng))
+                    put("city", city)
+                }
+            ) {
+                filter { eq("id", userId) }
+            }
+            return getCurrentProfile() ?: throw DzirentException("Couldn't load your profile. Please try again.")
+        } catch (e: Exception) {
+            throw fail("save your location", e)
+        }
+    }
+
+    /** Users I blocked plus users who blocked me (ids only). */
+    suspend fun getBlockPeerIds(): Set<String> {
+        return try {
+            postgrest.rpc("my_block_peer_ids").decodeList<String>().toSet()
+        } catch (e: Exception) {
+            throw fail("load your blocked users", e)
+        }
+    }
+
     // --- LISTINGS & NEARBY SEARCH ---
+
+    /**
+     * Active listings within [radiusKm] of the given point. The listings_nearby RPC hides
+     * blocked users itself; the fallback query applies blocks and the radius in the app.
+     */
     suspend fun getNearbyListings(
         lat: Double,
         lng: Double,
@@ -201,11 +235,12 @@ class DzirentRepository {
             category?.let { put("p_category", it) }
         }
 
-        return try {
+        val listings = try {
             postgrest.rpc("listings_nearby", rpcParams).decodeList<Listing>()
         } catch (e: Exception) {
             logError("getNearbyListings RPC", e)
             try {
+                val blockPeers = getBlockPeerIds()
                 postgrest.from("listings")
                     .select {
                         filter {
@@ -215,10 +250,14 @@ class DzirentRepository {
                         order("created_at", Order.DESCENDING)
                     }
                     .decodeList<Listing>()
+                    .filter { it.lenderId !in blockPeers }
             } catch (fallbackEx: Exception) {
                 throw fail("load listings", fallbackEx)
             }
         }
+        return listings
+            .map { it.copy(distanceKm = haversineKm(lat, lng, it.approxLat, it.approxLng)) }
+            .filter { (it.distanceKm ?: 0.0) <= radiusKm }
     }
 
     suspend fun getListingDetail(id: String): Listing {
@@ -453,6 +492,4 @@ class DzirentRepository {
             throw fail("save your answer", e)
         }
     }
-
-    private fun round2(v: Double): Double = (v * 100.0).roundToInt() / 100.0
 }

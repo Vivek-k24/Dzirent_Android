@@ -13,11 +13,13 @@ data class Profile(
     @SerialName("display_name") val displayName: String = "",
     val role: String = "renter", // 'renter' | 'lender' | 'both'
     val city: String = "",
-    @SerialName("approx_lat") val approxLat: Double = 0.0,
-    @SerialName("approx_lng") val approxLng: Double = 0.0,
+    @SerialName("approx_lat") val approxLat: Double? = null,
+    @SerialName("approx_lng") val approxLng: Double? = null,
     @SerialName("adult_confirmed") val adultConfirmed: Boolean = false,
     @SerialName("created_at") val createdAt: String? = null
-)
+) {
+    val hasLocation: Boolean get() = approxLat != null && approxLng != null
+}
 
 @Serializable
 data class Listing(

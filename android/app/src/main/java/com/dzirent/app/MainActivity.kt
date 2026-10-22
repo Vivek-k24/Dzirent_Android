@@ -154,6 +154,28 @@ fun MainAppScaffold(
     var profile by remember { mutableStateOf(userProfile) }
     var currentTab by rememberSaveable { mutableStateOf(TabBrowse.route) }
     val tabs = tabsFor(profile.role)
+    var showLocationSetup by remember { mutableStateOf(false) }
+    val locationPrompts = remember { LocationPromptStore(context) }
+
+    // Ask once, right after login, if the profile has no location yet.
+    LaunchedEffect(profile.id) {
+        if (!profile.hasLocation && !locationPrompts.wasAsked(profile.id)) {
+            locationPrompts.markAsked(profile.id)
+            showLocationSetup = true
+        }
+    }
+
+    if (showLocationSetup) {
+        LocationSetupDialog(
+            repository = repository,
+            profile = profile,
+            onDismiss = { showLocationSetup = false },
+            onSaved = { updated ->
+                profile = updated
+                showLocationSetup = false
+            }
+        )
+    }
 
     fun openTab(route: String) {
         currentTab = route
@@ -197,6 +219,8 @@ fun MainAppScaffold(
             composable("browse") {
                 BrowseScreen(
                     repository = repository,
+                    profile = profile,
+                    onSetLocation = { showLocationSetup = true },
                     onListingClick = { listingId ->
                         navController.navigate("detail/$listingId")
                     }
@@ -251,7 +275,8 @@ fun MainAppScaffold(
             composable("list") {
                 CreateListingScreen(
                     repository = repository,
-                    currentUserId = profile.id,
+                    profile = profile,
+                    onSetLocation = { showLocationSetup = true },
                     onListingCreated = { openTab(TabCloset.route) }
                 )
             }
@@ -275,6 +300,7 @@ fun MainAppScaffold(
                     repository = repository,
                     profile = profile,
                     onProfileUpdated = { updated -> profile = updated },
+                    onSetLocation = { showLocationSetup = true },
                     onOpenPolicy = { navController.navigate("policy") },
                     onSignOut = onSignOut
                 )
