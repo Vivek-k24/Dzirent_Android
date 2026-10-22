@@ -290,6 +290,8 @@ fun ListingDetailScreen(
     onMessageLender: (listingId: String, lenderId: String) -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<Listing>>(UiState.Loading) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var reportTarget by remember { mutableStateOf<ReportTarget?>(null) }
     val scope = rememberCoroutineScope()
 
     fun loadDetail() {
@@ -317,15 +319,40 @@ fun ListingDetailScreen(
                 }
             },
             actions = {
-                // Editing is for the owner only (RLS enforces this too).
+                // Editing is for the owner only (RLS enforces this too); others can report.
                 val loaded = (uiState as? UiState.Success)?.data
                 if (loaded != null && loaded.lenderId == currentUserId) {
                     IconButton(onClick = { onEdit(loaded.id) }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit listing")
                     }
+                } else if (loaded != null) {
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Report listing") },
+                                leadingIcon = { Icon(Icons.Default.Flag, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    reportTarget = ReportTarget("listing", loaded.id, "Report listing")
+                                }
+                            )
+                        }
+                    }
                 }
             }
         )
+
+        reportTarget?.let { target ->
+            ReportDialog(
+                repository = repository,
+                reporterId = currentUserId,
+                target = target,
+                onDismiss = { reportTarget = null }
+            )
+        }
 
         when (val state = uiState) {
             is UiState.Loading -> LoadingView(message = "Loading listing details...")
@@ -927,6 +954,7 @@ fun ProfileScreen(
     onProfileUpdated: (Profile) -> Unit,
     onSetLocation: () -> Unit,
     onOpenPolicy: () -> Unit,
+    onOpenBlockedUsers: () -> Unit,
     onSignOut: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -1095,6 +1123,13 @@ fun ProfileScreen(
             leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
             trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             modifier = Modifier.clickable { onOpenPolicy() }
+        )
+        HorizontalDivider()
+        ListItem(
+            headlineContent = { Text("Blocked users") },
+            leadingContent = { Icon(Icons.Default.Block, contentDescription = null) },
+            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            modifier = Modifier.clickable { onOpenBlockedUsers() }
         )
         HorizontalDivider()
 

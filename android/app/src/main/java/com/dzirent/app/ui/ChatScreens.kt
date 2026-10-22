@@ -1,6 +1,8 @@
 package com.dzirent.app.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,11 +17,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.*
+import com.dzirent.app.data.repository.CANT_MESSAGE_USER
 import com.dzirent.app.data.repository.ChatSubscription
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.DateRange
@@ -171,6 +175,9 @@ fun ChatScreen(
     var isSavingRental by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var showRentedPicker by remember { mutableStateOf(false) }
+    var iBlocked by remember { mutableStateOf(false) }
+    var showBlockConfirm by remember { mutableStateOf(false) }
+    var reportTarget by remember { mutableStateOf<ReportTarget?>(null) }
 
     val listState = rememberLazyListState()
 
@@ -188,6 +195,7 @@ fun ChatScreen(
             val history = repository.getMessages(conversationId)
             val loadedRental = repository.getRental(conversationId)
             val outcome = repository.getMyRentalOutcome(conversationId, currentUserId)
+            iBlocked = repository.haveIBlocked(currentUserId, conversation.otherUserId(currentUserId))
             merge(history)
             rental = loadedRental
             myOutcome = outcome
@@ -268,6 +276,21 @@ fun ChatScreen(
         }
     }
 
+    fun setBlocked(block: Boolean) {
+        val conv = conversation ?: return
+        val otherId = conv.otherUserId(currentUserId)
+        scope.launch {
+            actionError = null
+            try {
+                if (block) repository.blockUser(currentUserId, otherId) else repository.unblockUser(currentUserId, otherId)
+                iBlocked = block
+                sendError = null
+            } catch (e: Exception) {
+                actionError = e.userMessage(if (block) "Couldn't block this user." else "Couldn't unblock this user.")
+            }
+        }
+    }
+
     fun answerFollowUpNo() {
         val conv = conversation ?: return
         scope.launch {
@@ -293,6 +316,23 @@ fun ChatScreen(
                 showRentedPicker = false
                 updateRental("active", range, outcome = true)
             }
+        )
+    }
+
+    if (showBlockConfirm) {
+        BlockUserDialog(
+            name = otherName,
+            onConfirm = { showBlockConfirm = false; setBlocked(true) },
+            onDismiss = { showBlockConfirm = false }
+        )
+    }
+
+    reportTarget?.let { target ->
+        ReportDialog(
+            repository = repository,
+            reporterId = currentUserId,
+            target = target,
+            onDismiss = { reportTarget = null }
         )
     }
 
@@ -347,6 +387,23 @@ fun ChatScreen(
                                     onClick = { menuOpen = false; updateRental("cancelled", outcome = false) }
                                 )
                             }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Report user") },
+                                leadingIcon = { Icon(Icons.Default.Flag, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    reportTarget = ReportTarget("user", conversation.otherUserId(currentUserId), "Report $otherName")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (iBlocked) "Unblock user" else "Block user") },
+                                leadingIcon = { Icon(Icons.Default.Block, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    if (iBlocked) setBlocked(false) else showBlockConfirm = true
+                                }
+                            )
                         }
                     }
                 }
@@ -360,6 +417,24 @@ fun ChatScreen(
                 val conv = state.data
                 PinnedListing(listing = conv.listing, onClick = { onOpenListing(conv.listingId) })
                 rental?.let { RentalBanner(it, currentUserId, otherName) }
+                if (iBlocked) {
+                    Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "You blocked this user",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { setBlocked(false) }) { Text("Unblock") }
+                        }
+                    }
+                }
                 if (isSavingRental) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 if (liveUnavailable) {
                     Text(
@@ -398,7 +473,7 @@ fun ChatScreen(
                             )
                         }
                     }
-                    if (messages.isEmpty()) {
+                    if (messages.isEmpty() && !iBlocked) {
                         item(key = "empty") {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -418,7 +493,14 @@ fun ChatScreen(
                         }
                     }
                     items(messages, key = { it.id }) { msg ->
-                        MessageBubble(message = msg, isMe = msg.senderId == currentUserId)
+                        val isMe = msg.senderId == currentUserId
+                        MessageBubble(
+                            message = msg,
+                            isMe = isMe,
+                            onLongPress = if (isMe) null else {
+                                { reportTarget = ReportTarget("message", msg.id, "Report message") }
+                            }
+                        )
                     }
                 }
 
@@ -433,7 +515,7 @@ fun ChatScreen(
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f)
                         )
-                        if (sendError != null) {
+                        if (sendError != null && sendError != CANT_MESSAGE_USER) {
                             TextButton(onClick = { send(input) }, enabled = !isSending) { Text("Retry") }
                         } else {
                             TextButton(onClick = { actionError = null }) { Text("OK") }
@@ -450,7 +532,8 @@ fun ChatScreen(
                     OutlinedTextField(
                         value = input,
                         onValueChange = { if (it.length <= MESSAGE_MAX) input = it; sendError = null },
-                        placeholder = { Text("Type a message...") },
+                        placeholder = { Text(if (iBlocked) "You blocked this user" else "Type a message...") },
+                        enabled = !iBlocked,
                         modifier = Modifier.weight(1f),
                         maxLines = 4
                     )
@@ -458,7 +541,7 @@ fun ChatScreen(
                     if (isSending) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(2.dp))
                     } else {
-                        IconButton(onClick = { send(input) }, enabled = input.isNotBlank()) {
+                        IconButton(onClick = { send(input) }, enabled = input.isNotBlank() && !iBlocked) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                         }
                     }
@@ -561,16 +644,32 @@ private fun FollowUpCard(onYes: () -> Unit, onNo: () -> Unit) {
     }
 }
 
+/** A chat bubble. Long-pressing someone else's message reports it. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: Message, isMe: Boolean) {
+private fun MessageBubble(message: Message, isMe: Boolean, onLongPress: (() -> Unit)?) {
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = if (isMe) Alignment.CenterEnd else Alignment.CenterStart
     ) {
         Surface(
             color = if (isMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.widthIn(max = 280.dp)
+            shape = shape,
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .clip(shape)
+                .then(
+                    if (onLongPress != null) {
+                        Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClick = onLongPress,
+                            onLongClickLabel = "Report message"
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Text(text = message.body, style = MaterialTheme.typography.bodyMedium)

@@ -326,7 +326,15 @@ fun MainAppScaffold(
                     onProfileUpdated = { updated -> profile = updated },
                     onSetLocation = { showLocationSetup = true },
                     onOpenPolicy = { navController.navigate("policy") },
+                    onOpenBlockedUsers = { navController.navigate("blocked") },
                     onSignOut = onSignOut
+                )
+            }
+            composable("blocked") {
+                BlockedUsersScreen(
+                    repository = repository,
+                    currentUserId = profile.id,
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable("policy") {

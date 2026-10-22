@@ -99,7 +99,9 @@ data class Message(
 @Serializable
 data class Block(
     @SerialName("blocker_id") val blockerId: String,
-    @SerialName("blocked_id") val blockedId: String
+    @SerialName("blocked_id") val blockedId: String,
+    // Embedded via select(), never written.
+    val blocked: Profile? = null
 )
 
 @Serializable
@@ -108,8 +110,14 @@ data class Report(
     @SerialName("reporter_id") val reporterId: String,
     @SerialName("target_type") val targetType: String, // 'listing' | 'user' | 'message'
     @SerialName("target_id") val targetId: String,
-    val reason: String
+    val reason: String,
+    val details: String? = null
 )
+
+object ReportReasons {
+    val ALL = listOf("Inappropriate photo", "Prohibited item", "Scam or fraud", "Harassment", "Other")
+    const val DETAILS_MAX = 500
+}
 
 @Serializable
 data class Rental(

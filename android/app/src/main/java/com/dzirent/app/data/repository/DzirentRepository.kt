@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.ByteArrayInputStream
@@ -769,9 +770,51 @@ class DzirentRepository {
     // --- MODERATION & OUTCOMES ---
     suspend fun blockUser(blockerId: String, blockedId: String) {
         try {
-            postgrest.from("blocks").insert(Block(blockerId, blockedId))
+            // Blocking twice is harmless: the primary key makes the second insert a no-op.
+            postgrest.from("blocks").upsert(Block(blockerId, blockedId)) { ignoreDuplicates = true }
         } catch (e: Exception) {
             throw fail("block this user", e)
+        }
+    }
+
+    /** Deletes my own blocks row ("manage own blocks" RLS only allows mine). */
+    suspend fun unblockUser(blockerId: String, blockedId: String) {
+        try {
+            postgrest.from("blocks").delete {
+                filter {
+                    eq("blocker_id", blockerId)
+                    eq("blocked_id", blockedId)
+                }
+            }
+        } catch (e: Exception) {
+            throw fail("unblock this user", e)
+        }
+    }
+
+    /** People I blocked, with their public profile. */
+    suspend fun getBlockedUsers(blockerId: String): List<Block> {
+        return try {
+            postgrest.from("blocks").select(
+                Columns.raw("blocker_id, blocked_id, blocked:profiles!blocks_blocked_id_fkey(id, display_name, city)")
+            ) {
+                filter { eq("blocker_id", blockerId) }
+            }.decodeList<Block>()
+        } catch (e: Exception) {
+            throw fail("load your blocked users", e)
+        }
+    }
+
+    /** True if I blocked this user (not whether they blocked me). */
+    suspend fun haveIBlocked(blockerId: String, otherId: String): Boolean {
+        return try {
+            postgrest.from("blocks").select(Columns.list("blocker_id")) {
+                filter {
+                    eq("blocker_id", blockerId)
+                    eq("blocked_id", otherId)
+                }
+            }.decodeList<JsonObject>().isNotEmpty()
+        } catch (e: Exception) {
+            throw fail("load your blocked users", e)
         }
     }
 
