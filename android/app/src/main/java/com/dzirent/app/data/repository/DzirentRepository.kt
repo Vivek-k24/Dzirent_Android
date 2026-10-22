@@ -274,8 +274,9 @@ class DzirentRepository {
             val photoUuid = UUID.randomUUID().toString()
             val path = "$userId/$listingId/$photoUuid.jpg"
 
+            // Filenames are fresh UUIDs; upsert would need an UPDATE policy the bucket doesn't grant.
             storage.from("listing-photos").upload(path, compressed) {
-                upsert = true
+                upsert = false
             }
 
             val publicUrl = storage.from("listing-photos").publicUrl(path)
