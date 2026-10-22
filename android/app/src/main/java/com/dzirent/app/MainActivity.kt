@@ -233,6 +233,7 @@ fun MainAppScaffold(
                     listingId = listingId,
                     currentUserId = profile.id,
                     onBack = { navController.popBackStack() },
+                    onEdit = { id -> navController.navigate("edit/$id") },
                     onMessageLender = { targetListingId, lenderId ->
                         // Create the conversation (or reuse the existing one), then open it.
                         scope.launch {
@@ -273,11 +274,31 @@ fun MainAppScaffold(
                 )
             }
             composable("list") {
-                CreateListingScreen(
+                ListingEditorScreen(
                     repository = repository,
                     profile = profile,
+                    listingId = null,
                     onSetLocation = { showLocationSetup = true },
-                    onListingCreated = { openTab(TabCloset.route) }
+                    onBack = null,
+                    onSaved = {
+                        // Drop the filled-in form so the List tab starts fresh next time.
+                        navController.navigate(TabCloset.route) {
+                            popUpTo(TabBrowse.route)
+                            launchSingleTop = true
+                        }
+                        currentTab = TabCloset.route
+                    }
+                )
+            }
+            composable("edit/{listingId}") { backStackEntry ->
+                val listingId = backStackEntry.arguments?.getString("listingId") ?: ""
+                ListingEditorScreen(
+                    repository = repository,
+                    profile = profile,
+                    listingId = listingId,
+                    onSetLocation = { showLocationSetup = true },
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() }
                 )
             }
             composable("closet") {
@@ -285,6 +306,8 @@ fun MainAppScaffold(
                     repository = repository,
                     currentUserId = profile.id,
                     showRentalsTab = profile.role == Roles.BOTH,
+                    onOpenListing = { id -> navController.navigate("detail/$id") },
+                    onEditListing = { id -> navController.navigate("edit/$id") },
                     onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") }
                 )
             }

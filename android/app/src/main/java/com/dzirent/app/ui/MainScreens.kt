@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,7 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -38,7 +36,6 @@ import com.dzirent.app.util.DISTANCE_OPTIONS_KM
 import com.dzirent.app.util.formatDateRange
 import com.dzirent.app.util.formatDistance
 import kotlinx.coroutines.launch
-import java.util.UUID
 
 sealed class UiState<out T> {
     object Loading : UiState<Nothing>()
@@ -284,6 +281,7 @@ fun ListingDetailScreen(
     listingId: String,
     currentUserId: String,
     onBack: () -> Unit,
+    onEdit: (listingId: String) -> Unit,
     onMessageLender: (listingId: String, lenderId: String) -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<Listing>>(UiState.Loading) }
@@ -311,6 +309,15 @@ fun ListingDetailScreen(
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            },
+            actions = {
+                // Editing is for the owner only (RLS enforces this too).
+                val loaded = (uiState as? UiState.Success)?.data
+                if (loaded != null && loaded.lenderId == currentUserId) {
+                    IconButton(onClick = { onEdit(loaded.id) }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit listing")
+                    }
                 }
             }
         )
@@ -628,222 +635,6 @@ fun ChatScreen(
     }
 }
 
-// --- CREATE LISTING SCREEN ---
-@Composable
-fun CreateListingScreen(
-    repository: DzirentRepository,
-    profile: Profile,
-    onSetLocation: () -> Unit,
-    onListingCreated: () -> Unit
-) {
-    var title by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf(Categories.ALL.first()) }
-    var sizeLabel by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var priceNote by remember { mutableStateOf("") }
-    var retailValueText by remember { mutableStateOf("") }
-    var depositNote by remember { mutableStateOf("") }
-
-    var isSubmitting by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    if (isSubmitting) {
-        LoadingView(message = "Publishing listing...")
-        return
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Create New Listing",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (!profile.hasLocation) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = NO_LOCATION_TO_PUBLISH,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(onClick = onSetLocation) {
-                        Text("Set my location")
-                    }
-                }
-            }
-        } else {
-            Text(
-                text = "Shown near ${profile.city.ifBlank { "your area" }} (approximate, about 1 km)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-            )
-        }
-
-        if (errorMessage != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = errorMessage ?: "",
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(onClick = { errorMessage = null; isSubmitting = false }) {
-                        Text("Retry")
-                    }
-                }
-            }
-        }
-
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            label = { Text("Title (e.g. Designer Evening Gown)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = sizeLabel,
-            onValueChange = { sizeLabel = it },
-            label = { Text("Size Label (e.g. M / US 8)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = priceNote,
-            onValueChange = { priceNote = it },
-            label = { Text("Price Note (e.g. $25/day or Trade)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
-            label = { Text("Description") },
-            modifier = Modifier.fillMaxWidth().height(120.dp)
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        DepositFields(
-            retailValueText = retailValueText,
-            onRetailValueChange = { retailValueText = it },
-            depositNote = depositNote,
-            onDepositNoteChange = { depositNote = it }
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = {
-                val lat = profile.approxLat
-                val lng = profile.approxLng
-                if (lat == null || lng == null) {
-                    errorMessage = NO_LOCATION_TO_PUBLISH
-                    return@Button
-                }
-                if (title.isBlank() || sizeLabel.isBlank() || priceNote.isBlank()) {
-                    errorMessage = "Please enter Title, Size, and Price Note."
-                    return@Button
-                }
-                val retailValue = retailValueText.trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()
-                if (retailValueText.isNotBlank() && (retailValue == null || retailValue <= 0)) {
-                    errorMessage = "Retail value must be a number above 0, or leave it empty."
-                    return@Button
-                }
-                scope.launch {
-                    isSubmitting = true
-                    errorMessage = null
-                    try {
-                        val newListing = Listing(
-                            id = UUID.randomUUID().toString(),
-                            lenderId = profile.id,
-                            title = title.trim(),
-                            category = selectedCategory,
-                            sizeLabel = sizeLabel.trim(),
-                            description = description.trim(),
-                            priceNote = priceNote.trim(),
-                            // Listings take the lender's approximate (already rounded) location.
-                            city = profile.city,
-                            approxLat = lat,
-                            approxLng = lng,
-                            status = "active",
-                            retailValue = retailValue,
-                            depositNote = depositNote.trim().ifBlank { null }
-                        )
-                        repository.createListing(newListing)
-                        isSubmitting = false
-                        onListingCreated()
-                    } catch (e: Exception) {
-                        isSubmitting = false
-                        errorMessage = e.userMessage("Failed to publish listing. Please try again.")
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) {
-            Text("Publish Listing")
-        }
-    }
-}
-
-private const val NO_LOCATION_TO_PUBLISH =
-    "Set your location before publishing. Listings show your approximate area (about 1 km), never your exact address."
-
-/** Optional retail value and deposit note, with a deposit tip for valuable pieces. */
-@Composable
-fun DepositFields(
-    retailValueText: String,
-    onRetailValueChange: (String) -> Unit,
-    depositNote: String,
-    onDepositNoteChange: (String) -> Unit
-) {
-    OutlinedTextField(
-        value = retailValueText,
-        onValueChange = { input -> onRetailValueChange(input.filter { it.isDigit() || it == '.' }) },
-        label = { Text("Retail value (\$) - optional") },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth()
-    )
-    val retailValue = retailValueText.toDoubleOrNull()
-    if (retailValue != null && retailValue >= DzirentPolicy.DEPOSIT_SUGGESTION_USD) {
-        Spacer(modifier = Modifier.height(8.dp))
-        PolicyNotice(text = DzirentPolicy.DEPOSIT_TIP)
-    }
-    Spacer(modifier = Modifier.height(12.dp))
-    OutlinedTextField(
-        value = depositNote,
-        onValueChange = { if (it.length <= DEPOSIT_NOTE_MAX) onDepositNoteChange(it) },
-        label = { Text("Deposit note - optional") },
-        placeholder = { Text("e.g. \$40 refundable deposit, cash at pickup") },
-        supportingText = { Text("${depositNote.length}/$DEPOSIT_NOTE_MAX") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth()
-    )
-}
-
-private const val DEPOSIT_NOTE_MAX = 120
-
 // --- MY CLOSET SCREEN ---
 
 /**
@@ -855,10 +646,12 @@ fun MyClosetScreen(
     repository: DzirentRepository,
     currentUserId: String,
     showRentalsTab: Boolean,
+    onOpenListing: (listingId: String) -> Unit,
+    onEditListing: (listingId: String) -> Unit,
     onOpenChat: (conversationId: String) -> Unit
 ) {
     if (!showRentalsTab) {
-        MyListingsContent(repository = repository, currentUserId = currentUserId)
+        MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
         return
     }
 
@@ -869,29 +662,75 @@ fun MyClosetScreen(
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("My Rentals") })
         }
         when (selectedTab) {
-            0 -> MyListingsContent(repository = repository, currentUserId = currentUserId)
+            0 -> MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
             else -> MyRentalsScreen(repository = repository, currentUserId = currentUserId, onOpenChat = onOpenChat)
         }
     }
 }
 
+private data class ClosetData(val listings: List<Listing>, val rentedOut: Set<String>)
+
 @Composable
 private fun MyListingsContent(
     repository: DzirentRepository,
-    currentUserId: String
+    currentUserId: String,
+    onOpenListing: (listingId: String) -> Unit,
+    onEditListing: (listingId: String) -> Unit
 ) {
-    var uiState by remember { mutableStateOf<UiState<List<Listing>>>(UiState.Loading) }
+    var uiState by remember { mutableStateOf<UiState<ClosetData>>(UiState.Loading) }
+    var busyIds by remember { mutableStateOf(emptySet<String>()) }
+    var actionError by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<Listing?>(null) }
     val scope = rememberCoroutineScope()
 
     fun loadMyListings() {
         scope.launch {
             uiState = UiState.Loading
             try {
-                val list = repository.getMyListings(currentUserId)
-                uiState = UiState.Success(list)
+                val listings = repository.getMyListings(currentUserId)
+                val rentedOut = repository.getRentedOutListingIds(currentUserId)
+                uiState = UiState.Success(ClosetData(listings, rentedOut))
             } catch (e: Exception) {
                 uiState = UiState.Error(e.userMessage("Failed to load your closet."))
             }
+        }
+    }
+
+    fun updateListing(id: String, transform: (Listing) -> Listing?) {
+        val data = (uiState as? UiState.Success)?.data ?: return
+        uiState = UiState.Success(data.copy(listings = data.listings.mapNotNull { if (it.id == id) transform(it) else it }))
+    }
+
+    fun setActive(listing: Listing, active: Boolean) {
+        if (active && listing.photos.isEmpty()) {
+            actionError = "Add at least one photo (Edit) before turning \"${listing.title}\" on."
+            return
+        }
+        scope.launch {
+            busyIds = busyIds + listing.id
+            actionError = null
+            try {
+                val status = if (active) "active" else "paused"
+                repository.toggleListingStatus(listing.id, status)
+                updateListing(listing.id) { it.copy(status = status) }
+            } catch (e: Exception) {
+                actionError = e.userMessage("Couldn't update your listing. Please try again.")
+            }
+            busyIds = busyIds - listing.id
+        }
+    }
+
+    fun delete(listing: Listing) {
+        scope.launch {
+            busyIds = busyIds + listing.id
+            actionError = null
+            try {
+                repository.deleteListing(listing.id)
+                updateListing(listing.id) { null }
+            } catch (e: Exception) {
+                actionError = e.userMessage("Couldn't delete your listing. Please try again.")
+            }
+            busyIds = busyIds - listing.id
         }
     }
 
@@ -899,11 +738,29 @@ private fun MyListingsContent(
         loadMyListings()
     }
 
+    pendingDelete?.let { listing ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            title = { Text("Delete this listing?") },
+            text = { Text("\"${listing.title}\" and its photos will be removed for good. Chats about it will be deleted too.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    delete(listing)
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     when (val state = uiState) {
         is UiState.Loading -> LoadingView(message = "Loading your closet...")
         is UiState.Error -> ErrorView(message = state.message, onRetry = { loadMyListings() })
         is UiState.Success -> {
-            if (state.data.isEmpty()) {
+            if (state.data.listings.isEmpty()) {
                 EmptyView(
                     title = "Your Closet is Empty",
                     description = "You haven't listed any clothes yet. Tap 'List' to share items from your wardrobe!",
@@ -915,47 +772,118 @@ private fun MyListingsContent(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(state.data) { listing ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = listing.title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "${listing.category} | ${listing.sizeLabel} | Status: ${listing.status}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            try {
-                                                repository.deleteListing(listing.id)
-                                                loadMyListings()
-                                            } catch (_: Exception) {
-                                                // Logged via Dzirent tag
-                                            }
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
-                                }
-                            }
+                    actionError?.let { message ->
+                        item {
+                            Text(
+                                text = message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
+                    }
+                    items(state.data.listings, key = { it.id }) { listing ->
+                        ClosetListingCard(
+                            listing = listing,
+                            rentedOut = listing.id in state.data.rentedOut,
+                            busy = listing.id in busyIds,
+                            onOpen = { onOpenListing(listing.id) },
+                            onActiveChange = { setActive(listing, it) },
+                            onEdit = { onEditListing(listing.id) },
+                            onDelete = { pendingDelete = listing }
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ClosetListingCard(
+    listing: Listing,
+    rentedOut: Boolean,
+    busy: Boolean,
+    onOpen: () -> Unit,
+    onActiveChange: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val isActive = listing.status == "active"
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen() },
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ListingThumbnail(listing = listing, size = 72.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = listing.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${listing.category} · ${listing.sizeLabel}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    StatusBadge(
+                        text = if (isActive) "Active" else "Paused",
+                        highlighted = isActive
+                    )
+                    if (rentedOut) StatusBadge(text = "Rented out", highlighted = true, emphasis = true)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Switch(
+                    checked = isActive,
+                    onCheckedChange = onActiveChange,
+                    enabled = !busy
+                )
+                Row {
+                    IconButton(onClick = onEdit, enabled = !busy) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                    }
+                    IconButton(onClick = onDelete, enabled = !busy) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusBadge(text: String, highlighted: Boolean, emphasis: Boolean = false) {
+    Surface(
+        color = when {
+            emphasis -> MaterialTheme.colorScheme.primary
+            highlighted -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = RoundedCornerShape(50)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = when {
+                emphasis -> MaterialTheme.colorScheme.onPrimary
+                highlighted -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+        )
     }
 }
 

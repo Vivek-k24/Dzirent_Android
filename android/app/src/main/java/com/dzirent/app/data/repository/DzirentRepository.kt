@@ -2,6 +2,8 @@ package com.dzirent.app.data.repository
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.util.Log
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
@@ -17,10 +19,15 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 import kotlin.math.*
@@ -30,6 +37,20 @@ import kotlin.math.*
  * URLs, headers and login tokens, so they are never shown on screen.
  */
 class DzirentException(message: String) : Exception(message)
+
+/** Embedded select for a listing with all of its child rows and the lender's public profile. */
+private const val LISTING_WITH_CHILDREN =
+    "*, photos:listing_photos(*), measurements:listing_measurements(*), availability:availability(*), " +
+        "lender:profiles!listings_lender_id_fkey(id, display_name, city)"
+
+@Serializable
+private data class ListingIdRow(@SerialName("listing_id") val listingId: String)
+
+/** Photos in display order, ranges by start date. */
+private fun Listing.sorted(): Listing = copy(
+    photos = photos.sortedBy { it.position },
+    availability = availability.sortedBy { it.startDate }
+)
 
 class DzirentRepository {
 
@@ -260,33 +281,92 @@ class DzirentRepository {
             .filter { (it.distanceKm ?: 0.0) <= radiusKm }
     }
 
+    /** Listing with its photos, measurements, availability and lender, in one request. */
     suspend fun getListingDetail(id: String): Listing {
         return try {
-            postgrest.from("listings").select {
+            postgrest.from("listings").select(Columns.raw(LISTING_WITH_CHILDREN)) {
                 filter { eq("id", id) }
-            }.decodeSingle<Listing>()
+            }.decodeSingle<Listing>().sorted()
         } catch (e: Exception) {
             throw fail("load this listing", e)
         }
     }
 
+    /** My listings with their photos embedded (for thumbnails). */
     suspend fun getMyListings(lenderId: String): List<Listing> {
         return try {
-            postgrest.from("listings").select {
+            postgrest.from("listings").select(Columns.raw("*, photos:listing_photos(*)")) {
                 filter { eq("lender_id", lenderId) }
                 order("created_at", Order.DESCENDING)
-            }.decodeList<Listing>()
+            }.decodeList<Listing>().map { it.sorted() }
         } catch (e: Exception) {
             throw fail("load your closet", e)
         }
     }
 
+    /** Ids of my listings that currently have an active rental. */
+    suspend fun getRentedOutListingIds(lenderId: String): Set<String> {
+        return try {
+            postgrest.from("rentals").select(Columns.list("listing_id")) {
+                filter {
+                    eq("lender_id", lenderId)
+                    eq("status", "active")
+                }
+            }.decodeList<ListingIdRow>().map { it.listingId }.toSet()
+        } catch (e: Exception) {
+            throw fail("load your closet", e)
+        }
+    }
+
+    /** Inserts the listing row only. Callers insert it as 'paused' and activate it last. */
     suspend fun createListing(listing: Listing): Listing {
         return try {
             postgrest.from("listings").insert(listing)
             listing
         } catch (e: Exception) {
-            throw fail("publish your listing", e)
+            throw fail("save your listing", e)
+        }
+    }
+
+    /** Updates the fields the lender can edit (location and owner never change here). */
+    suspend fun updateListingDetails(listing: Listing, status: String) {
+        try {
+            postgrest.from("listings").update(
+                buildJsonObject {
+                    put("title", listing.title)
+                    put("category", listing.category)
+                    put("size_label", listing.sizeLabel)
+                    put("description", listing.description)
+                    put("price_note", listing.priceNote)
+                    put("retail_value", listing.retailValue)
+                    put("deposit_note", listing.depositNote)
+                    put("status", status)
+                }
+            ) {
+                filter { eq("id", listing.id) }
+            }
+        } catch (e: Exception) {
+            throw fail("save your listing", e)
+        }
+    }
+
+    /** Replaces all measurements of a listing (safe to repeat on retry). */
+    suspend fun replaceMeasurements(listingId: String, measurements: List<ListingMeasurement>) {
+        try {
+            postgrest.from("listing_measurements").delete { filter { eq("listing_id", listingId) } }
+            if (measurements.isNotEmpty()) postgrest.from("listing_measurements").insert(measurements)
+        } catch (e: Exception) {
+            throw fail("save the measurements", e)
+        }
+    }
+
+    /** Replaces all availability ranges of a listing (safe to repeat on retry). */
+    suspend fun replaceAvailability(listingId: String, ranges: List<Availability>) {
+        try {
+            postgrest.from("availability").delete { filter { eq("listing_id", listingId) } }
+            if (ranges.isNotEmpty()) postgrest.from("availability").insert(ranges)
+        } catch (e: Exception) {
+            throw fail("save the available dates", e)
         }
     }
 
@@ -307,9 +387,7 @@ class DzirentRepository {
             }.decodeList<ListingPhoto>()
 
             if (photos.isNotEmpty()) {
-                // storage_path may hold a full public URL; storage.delete needs the object path.
-                val paths = photos.map { it.storagePath.substringAfter("/listing-photos/") }
-                storage.from("listing-photos").delete(paths)
+                storage.from("listing-photos").delete(photos.map { objectPath(it) })
             }
 
             postgrest.from("listings").delete {
@@ -327,51 +405,106 @@ class DzirentRepository {
         imageBytes: ByteArray,
         position: Int
     ): ListingPhoto {
-        return try {
-            val compressed = compressImage(imageBytes)
-            val photoUuid = UUID.randomUUID().toString()
-            val path = "$userId/$listingId/$photoUuid.jpg"
-
+        val compressed = withContext(Dispatchers.Default) { compressImage(imageBytes) }
+            ?: throw DzirentException("One of the photos couldn't be read. Remove it or pick a different one.")
+        val photoUuid = UUID.randomUUID().toString()
+        val path = "$userId/$listingId/$photoUuid.jpg"
+        try {
             // Filenames are fresh UUIDs; upsert would need an UPDATE policy the bucket doesn't grant.
             storage.from("listing-photos").upload(path, compressed) {
                 upsert = false
             }
-
-            val publicUrl = storage.from("listing-photos").publicUrl(path)
-            val photo = ListingPhoto(
-                id = photoUuid,
-                listingId = listingId,
-                storagePath = publicUrl,
-                position = position
-            )
-            postgrest.from("listing_photos").insert(photo)
-            photo
         } catch (e: Exception) {
             throw fail("upload the photo", e)
         }
+
+        val photo = ListingPhoto(
+            id = photoUuid,
+            listingId = listingId,
+            storagePath = storage.from("listing-photos").publicUrl(path),
+            position = position
+        )
+        try {
+            postgrest.from("listing_photos").insert(photo)
+        } catch (e: Exception) {
+            // Don't leave an orphaned file behind if the row couldn't be saved.
+            runCatching { storage.from("listing-photos").delete(listOf(path)) }
+            throw fail("upload the photo", e)
+        }
+        return photo
     }
 
-    private fun compressImage(originalBytes: ByteArray): ByteArray {
-        val bitmap = BitmapFactory.decodeByteArray(originalBytes, 0, originalBytes.size)
+    suspend fun updatePhotoPosition(photoId: String, position: Int) {
+        try {
+            postgrest.from("listing_photos").update(buildJsonObject { put("position", position) }) {
+                filter { eq("id", photoId) }
+            }
+        } catch (e: Exception) {
+            throw fail("save the photo order", e)
+        }
+    }
+
+    /** Deletes the photo row, then its file. A leftover file is only logged. */
+    suspend fun deleteListingPhoto(photo: ListingPhoto) {
+        try {
+            postgrest.from("listing_photos").delete { filter { eq("id", photo.id) } }
+        } catch (e: Exception) {
+            throw fail("remove the photo", e)
+        }
+        try {
+            storage.from("listing-photos").delete(listOf(objectPath(photo)))
+        } catch (e: Exception) {
+            logError("delete photo file", e)
+        }
+    }
+
+    /** storage_path holds the full public URL; storage calls need the object path. */
+    private fun objectPath(photo: ListingPhoto): String =
+        photo.storagePath.substringAfter("/listing-photos/")
+
+    /**
+     * Downscales to at most 1600 px on the long side, applies the EXIF rotation (camera
+     * photos are often stored sideways) and encodes as JPEG 80%. Null if not an image.
+     */
+    private fun compressImage(originalBytes: ByteArray): ByteArray? {
         val maxDim = 1600
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(originalBytes, 0, originalBytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        // Decode at a power-of-two reduction first so large camera photos don't run out of memory.
+        var sampleSize = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= maxDim) sampleSize *= 2
+        val bitmap = BitmapFactory.decodeByteArray(
+            originalBytes, 0, originalBytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        ) ?: return null
+
         val width = bitmap.width
         val height = bitmap.height
-
-        val scaledBitmap = if (width > maxDim || height > maxDim) {
-            val ratio = if (width > height) maxDim.toFloat() / width else maxDim.toFloat() / height
-            Bitmap.createScaledBitmap(
-                bitmap,
-                (width * ratio).roundToInt(),
-                (height * ratio).roundToInt(),
-                true
-            )
-        } else {
-            bitmap
+        val ratio = min(1f, maxDim.toFloat() / max(width, height))
+        val matrix = Matrix().apply {
+            postScale(ratio, ratio)
+            postRotate(exifRotationDegrees(originalBytes))
         }
+        val output = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
 
         val out = ByteArrayOutputStream()
-        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        output.compress(Bitmap.CompressFormat.JPEG, 80, out)
         return out.toByteArray()
+    }
+
+    private fun exifRotationDegrees(bytes: ByteArray): Float = try {
+        when (ExifInterface(ByteArrayInputStream(bytes)).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+        )) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+    } catch (e: Exception) {
+        0f
     }
 
     // --- CHAT & REALTIME ---
