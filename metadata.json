@@ -1,0 +1,8 @@
+{
+  "name": "Dzirent",
+  "description": "Peer-to-peer clothing rental app connecting lenders and renters nearby.",
+  "version": "1.0.0",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
