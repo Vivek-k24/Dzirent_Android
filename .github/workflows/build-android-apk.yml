@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - android03
-    paths-ignore:
-      - "Dzirent-android03-release.apk"
-      - "Dzirent-android03-debug.apk"
+    paths:
+      - "android/**"
+      - ".github/workflows/build-android-apk.yml"
   workflow_dispatch:
 
 permissions:
