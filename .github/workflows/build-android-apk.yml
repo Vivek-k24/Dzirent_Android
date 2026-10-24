@@ -1,10 +1,11 @@
-name: Build and publish Android APK
+name: Build and publish signed Android release APK
 
 on:
   push:
     branches:
       - android03
     paths-ignore:
+      - "Dzirent-android03-release.apk"
       - "Dzirent-android03-debug.apk"
   workflow_dispatch:
 
@@ -12,13 +13,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: android03-apk
+  group: android03-release
   cancel-in-progress: false
 
 jobs:
-  build-apk:
+  release-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
 
     steps:
       - name: Check out android03
@@ -41,48 +42,120 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Configure public Supabase client settings, when available
+      - name: Configure Supabase public-client settings, if provided
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           if [[ -n "$SUPABASE_URL" && -n "$SUPABASE_ANON_KEY" ]]; then
+            if [[ "$SUPABASE_URL" != https://*.supabase.co ]]; then
+              echo "::error::SUPABASE_URL must be a real https://<project>.supabase.co project URL."
+              exit 1
+            fi
             printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > android/local.properties
           else
-            echo "::warning::SUPABASE_URL and SUPABASE_ANON_KEY must be set as Actions secrets for the app to connect to the backend. APK will build with the existing placeholder values."
+            echo "::warning::Backend NOT configured: both SUPABASE_URL and SUPABASE_ANON_KEY GitHub Actions secrets are required for Supabase-backed sign-in, listings and chat. Packaging can still succeed."
           fi
 
-      - name: Assemble debug-signed APK
+      - name: Build unsigned release APK (not debug)
         working-directory: android
         run: |
-          # Android requires Java 17; the checked-in daemon pin targets a
-          # locally installed JetBrains JDK 21 unavailable on hosted runners.
-          # Omit only for CI, leaving the branch's developer config untouched.
+          # The checked-in daemon config pins a JetBrains JDK 21 only available
+          # locally. Gradle and the Android project build with JDK 17 in CI.
           rm -f gradle/gradle-daemon-jvm.properties
-          bash ./gradlew --no-daemon :app:assembleDebug
+          bash ./gradlew --no-daemon :app:assembleRelease
 
-      - name: Copy APK to repository root
+      - name: Prepare release APK signing key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk Dzirent-android03-debug.apk
-          test -s Dzirent-android03-debug.apk
-          ls -lh Dzirent-android03-debug.apk
+          set -euo pipefail
+          umask 077
+          KEYSTORE="$RUNNER_TEMP/dzirent-release.jks"
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$RELEASE_STORE_PASSWORD" && -n "$RELEASE_KEY_ALIAS" && -n "$RELEASE_KEY_PASSWORD" ]]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+            echo "Using configured, persistent Android release signing key."
+          else
+            # Usable for one-time APK installation. Future updates MUST use the
+            # same key; supply the four signing secrets for upgradable releases.
+            RELEASE_STORE_PASSWORD="$(openssl rand -hex 24)"
+            RELEASE_KEY_PASSWORD="$RELEASE_STORE_PASSWORD"
+            RELEASE_KEY_ALIAS="dzirent-release"
+            keytool -genkeypair -v -keystore "$KEYSTORE" \
+              -storepass "$RELEASE_STORE_PASSWORD" \
+              -alias "$RELEASE_KEY_ALIAS" \
+              -keypass "$RELEASE_KEY_PASSWORD" -keyalg RSA -keysize 3072 \
+              -validity 3650 -dname "CN=Dzirent, O=Dzirent Android"
+            echo "::warning::Temporary release signing certificate generated. This APK is a signed release, not a debug APK; however a subsequent build cannot update it until persistent signing secrets are configured with the same certificate. Uninstall/reinstall may otherwise be necessary."
+          fi
+          echo "DZIRENT_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "DZIRENT_KEY_ALIAS=$RELEASE_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "DZIRENT_STORE_PASSWORD=$RELEASE_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "DZIRENT_KEY_PASSWORD=$RELEASE_KEY_PASSWORD" >> "$GITHUB_ENV"
 
-      - name: Upload APK as GitHub Actions artifact
+      - name: Zipalign, sign and verify release APK
+        run: |
+          set -euo pipefail
+          TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          UNSIGNED=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$UNSIGNED"
+          "$TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/dzirent-aligned.apk"
+          "$TOOLS/apksigner" sign \
+            --ks "$DZIRENT_KEYSTORE" \
+            --ks-key-alias "$DZIRENT_KEY_ALIAS" \
+            --ks-pass "env:DZIRENT_STORE_PASSWORD" \
+            --key-pass "env:DZIRENT_KEY_PASSWORD" \
+            --out Dzirent-android03-release.apk \
+            "$RUNNER_TEMP/dzirent-aligned.apk"
+          "$TOOLS/apksigner" verify --verbose --print-certs Dzirent-android03-release.apk
+          test -s Dzirent-android03-release.apk
+          sha256sum Dzirent-android03-release.apk
+          ls -lh Dzirent-android03-release.apk
+
+      - name: Upload GitHub Actions backup
         uses: actions/upload-artifact@v4
         with:
-          name: Dzirent-android03-debug
-          path: Dzirent-android03-debug.apk
+          name: Dzirent-android03-release
+          path: Dzirent-android03-release.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Commit APK to android03 root
+      - name: Publish direct-download GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="android03-build-${GITHUB_RUN_NUMBER}"
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          Signed Android release APK from branch android03 (not a debug APK).
+          Install directly on Android 8.0 or newer.
+
+          Note: This is an installable distribution, not a claim that backend
+          integration is deployed or verified. The checked-in app depends on
+          Supabase build-time configuration. If the repository has no
+          SUPABASE_URL and SUPABASE_ANON_KEY Actions secrets, account and
+          data features will not work. To preserve Android update compatibility,
+          configure a permanent signing keystore and the four corresponding
+          ANDROID_RELEASE_* secrets.
+          EOF
+          gh release create "$TAG" Dzirent-android03-release.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Dzirent Android signed APK — build $GITHUB_RUN_NUMBER" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest
+
+      - name: Commit release APK to android03 root
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f Dzirent-android03-debug.apk
+          git add -f Dzirent-android03-release.apk
           if git diff --cached --quiet; then
-            echo "APK bytes unchanged; nothing to commit."
+            echo "APK unchanged; nothing to commit."
             exit 0
           fi
-          git commit -m "build: publish installable android03 APK [skip ci]"
+          git commit -m "build: publish signed release APK [skip ci]"
           git push origin HEAD:android03
