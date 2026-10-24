@@ -42,20 +42,25 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Configure Supabase public-client settings, if provided
+      - name: Require Supabase connection configuration
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          if [[ -n "$SUPABASE_URL" && -n "$SUPABASE_ANON_KEY" ]]; then
-            if [[ "$SUPABASE_URL" != https://*.supabase.co ]]; then
-              echo "::error::SUPABASE_URL must be a real https://<project>.supabase.co project URL."
-              exit 1
-            fi
-            printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > android/local.properties
-          else
-            echo "::warning::Backend NOT configured: both SUPABASE_URL and SUPABASE_ANON_KEY GitHub Actions secrets are required for Supabase-backed sign-in, listings and chat. Packaging can still succeed."
+          set -euo pipefail
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_ANON_KEY" ]]; then
+            echo "::error::Cannot publish a working APK: set SUPABASE_URL and SUPABASE_ANON_KEY in repository Actions secrets first."
+            exit 1
           fi
+          if [[ ! "$SUPABASE_URL" =~ ^https://[a-z0-9-]+\.supabase\.co/?$ ]]; then
+            echo "::error::SUPABASE_URL must be a real project URL of the form https://project-ref.supabase.co."
+            exit 1
+          fi
+          if [[ "$SUPABASE_ANON_KEY" == sb_secret_* ]]; then
+            echo "::error::Never embed a Supabase secret or service_role key in an APK. Use the publishable or legacy anon key."
+            exit 1
+          fi
+          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > android/local.properties
 
       - name: Build unsigned release APK (not debug)
         working-directory: android
@@ -75,22 +80,12 @@ jobs:
           set -euo pipefail
           umask 077
           KEYSTORE="$RUNNER_TEMP/dzirent-release.jks"
-          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$RELEASE_STORE_PASSWORD" && -n "$RELEASE_KEY_ALIAS" && -n "$RELEASE_KEY_PASSWORD" ]]; then
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
-            echo "Using configured, persistent Android release signing key."
-          else
-            # Usable for one-time APK installation. Future updates MUST use the
-            # same key; supply the four signing secrets for upgradable releases.
-            RELEASE_STORE_PASSWORD="$(openssl rand -hex 24)"
-            RELEASE_KEY_PASSWORD="$RELEASE_STORE_PASSWORD"
-            RELEASE_KEY_ALIAS="dzirent-release"
-            keytool -genkeypair -v -keystore "$KEYSTORE" \
-              -storepass "$RELEASE_STORE_PASSWORD" \
-              -alias "$RELEASE_KEY_ALIAS" \
-              -keypass "$RELEASE_KEY_PASSWORD" -keyalg RSA -keysize 3072 \
-              -validity 3650 -dname "CN=Dzirent, O=Dzirent Android"
-            echo "::warning::Temporary release signing certificate generated. This APK is a signed release, not a debug APK; however a subsequent build cannot update it until persistent signing secrets are configured with the same certificate. Uninstall/reinstall may otherwise be necessary."
+          if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
+            echo "::error::Permanent release signing is required. Configure the four ANDROID_RELEASE_* GitHub Actions secrets. Never use a temporary per-build certificate."
+            exit 1
           fi
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          echo "Using configured, permanent Android release signing key."
           echo "DZIRENT_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
           echo "DZIRENT_KEY_ALIAS=$RELEASE_KEY_ALIAS" >> "$GITHUB_ENV"
           echo "DZIRENT_STORE_PASSWORD=$RELEASE_STORE_PASSWORD" >> "$GITHUB_ENV"
