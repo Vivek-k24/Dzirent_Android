@@ -54,7 +54,12 @@ jobs:
 
       - name: Assemble debug-signed APK
         working-directory: android
-        run: bash ./gradlew --no-daemon :app:assembleDebug
+        run: |
+          # Android requires Java 17; the checked-in daemon pin targets a
+          # locally installed JetBrains JDK 21 unavailable on hosted runners.
+          # Omit only for CI, leaving the branch's developer config untouched.
+          rm -f gradle/gradle-daemon-jvm.properties
+          bash ./gradlew --no-daemon :app:assembleDebug
 
       - name: Copy APK to repository root
         run: |
