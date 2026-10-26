@@ -17,8 +17,35 @@ if (localPropertiesFile.exists()) {
     rootRepoLocalPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
-val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL") ?: "https://your-project-id.supabase.co"
-val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY") ?: "your-anon-key-here"
+val supabaseUrlProperty: String? = localProperties.getProperty("SUPABASE_URL")?.takeIf { it.isNotBlank() }
+val supabaseAnonKeyProperty: String? = localProperties.getProperty("SUPABASE_ANON_KEY")?.takeIf { it.isNotBlank() }
+
+// Placeholders keep debug builds compiling; release builds refuse them (see below).
+val supabaseUrl: String = supabaseUrlProperty ?: "https://your-project-id.supabase.co"
+val supabaseAnonKey: String = supabaseAnonKeyProperty ?: "your-anon-key-here"
+
+val missingSupabaseProperties: List<String> = listOfNotNull(
+    "SUPABASE_URL".takeIf { supabaseUrlProperty == null },
+    "SUPABASE_ANON_KEY".takeIf { supabaseAnonKeyProperty == null },
+)
+
+val requireReleaseSupabaseConfig by tasks.registering {
+    description = "Fails release builds that would embed placeholder Supabase configuration."
+    val missing = missingSupabaseProperties
+    doLast {
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Release build requires ${missing.joinToString(" and ")} in local.properties " +
+                    "(android/local.properties or the repository root local.properties). " +
+                    "Refusing to build a release APK with placeholder Supabase values."
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(requireReleaseSupabaseConfig)
+}
 
 android {
     namespace = "com.dzirent.app"
