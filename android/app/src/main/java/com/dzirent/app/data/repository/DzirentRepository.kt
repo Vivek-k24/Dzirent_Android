@@ -406,6 +406,7 @@ class DzirentRepository {
                 buildJsonObject {
                     put("title", listing.title)
                     put("category", listing.category)
+                    put("item_type", listing.itemType)
                     put("size_label", listing.sizeLabel)
                     put("description", listing.description)
                     put("price_note", listing.priceNote)

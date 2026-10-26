@@ -26,6 +26,15 @@ object DzirentPolicy {
             "before you meet. Meet in a public place and never send money before you see the item. " +
             "For valuable pieces, we recommend lenders ask for a refundable deposit."
 
+    const val PROHIBITED_TITLE = "Not allowed on Dzirent"
+
+    const val PROHIBITED_ITEMS =
+        "Smartwatches, caps, hats (including cowboy hats), boots, shoes, socks, and pantyhose or other hosiery. " +
+            "Use \"Report listing\" with the reason \"Prohibited item\" if you see one."
+
+    /** One line under the Accessories item type on the listing form. */
+    const val ACCESSORIES_NOT_ALLOWED = "Not allowed: smartwatches, hats, caps, footwear, socks, hosiery."
+
     /** Shown above "Message Lender". */
     const val LISTING_NOTICE =
         "Dzirent only connects people. Agree on price, dates, condition and any deposit in chat before you meet."
@@ -45,10 +54,23 @@ object DzirentPolicy {
 
 @Composable
 private fun PolicyBody() {
-    Text(
-        text = DzirentPolicy.FULL_TEXT,
-        style = MaterialTheme.typography.bodyLarge
-    )
+    Column {
+        Text(
+            text = DzirentPolicy.FULL_TEXT,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = DzirentPolicy.PROHIBITED_TITLE,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = DzirentPolicy.PROHIBITED_ITEMS,
+            style = MaterialTheme.typography.bodyLarge
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

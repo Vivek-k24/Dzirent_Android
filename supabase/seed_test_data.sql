@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Dzirent Android pilot: TEST DATA (12 listings around Austin, TX)
--- Run in Supabase > SQL Editor AFTER 002_pilot_features.sql.
+-- Run in Supabase > SQL Editor AFTER 003_cities_and_accessories.sql.
 -- 1. Type the lender's email on the v_email line below.
 -- 2. Run. The account must already exist and have role 'lender' or 'both'.
 -- Every title starts with "[TEST] ". No photos are added, so the app shows its
@@ -107,22 +107,24 @@ begin
      'cm', array['Chest','Shoulder','Sleeve Length','Total Length'], array[94, 42, 62, 56],
      1, 10, 25, 40),          -- East Austin
 
-    -- Bags & Accessories
-    ('[TEST] Tan Leather Crossbody Bag', 'Bags & Accessories', 'One size',
+    -- Accessories (both are handbags; item_type is set in the insert below)
+    ('[TEST] Tan Leather Crossbody Bag', 'Accessories', 'One size',
      'Small tan crossbody with an adjustable strap. Fits a phone, keys and a wallet.',
      '$6/day', 30.34, -97.72, null, null,
-     'in', array['Width','Height','Depth','Strap Drop'], array[9, 6.5, 3, 22],
+     'in', array['Width','Height','Depth','Strap drop'], array[9, 6.5, 3, 22],
      3, 24, null, null),      -- Crestview
-    ('[TEST] Gold Beaded Evening Clutch', 'Bags & Accessories', 'One size',
+    ('[TEST] Gold Beaded Evening Clutch', 'Accessories', 'One size',
      'Gold beaded clutch with a detachable chain. Pairs well with formal wear.',
      '$5 per event', 30.34, -97.75, null, null,
      'cm', array['Width','Height','Depth'], array[22, 12, 4],
      5, 12, 30, 37);          -- Allandale
 
-  insert into public.listings (id, lender_id, title, category, size_label, description, price_note,
+  insert into public.listings (id, lender_id, title, category, item_type, size_label, description, price_note,
                                city, approx_lat, approx_lng, status, retail_value, deposit_note)
-  select s.id, v_lender, s.title, s.category, s.size_label, s.description, s.price_note,
-         'Austin', round(s.lat::numeric, 2), round(s.lng::numeric, 2), 'active', s.retail_value, s.deposit_note
+  select s.id, v_lender, s.title, s.category,
+         case when s.category = 'Accessories' then 'Handbag' end,
+         s.size_label, s.description, s.price_note,
+         'Austin, TX', round(s.lat::numeric, 2), round(s.lng::numeric, 2), 'active', s.retail_value, s.deposit_note
   from _seed s;
 
   insert into public.listing_measurements (listing_id, label, value, unit)

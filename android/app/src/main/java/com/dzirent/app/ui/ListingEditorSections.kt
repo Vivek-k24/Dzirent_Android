@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.dzirent.app.data.model.Categories
 import com.dzirent.app.util.DateRange
 import com.dzirent.app.util.MEASUREMENT_LABEL_MAX
 import com.dzirent.app.util.MeasurementInput
@@ -37,12 +36,13 @@ data class MeasurementRow(
 
 /**
  * Dynamic measurement rows with one cm/in unit for the whole listing and quick-add chips
- * for the category. Errors show once a value is typed, or for every row after [showAllErrors].
+ * ([suggestions], from the category or accessory type). Errors show once a value is typed,
+ * or for every row after [showAllErrors].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MeasurementsSection(
-    category: String,
+    suggestions: List<String>,
     unit: String,
     onUnitChange: (String) -> Unit,
     rows: List<MeasurementRow>,
@@ -121,10 +121,10 @@ fun MeasurementsSection(
     }
 
     val present = rows.map { it.label.trim().lowercase() }.toSet()
-    val suggestions = Categories.SUGGESTIONS[category].orEmpty().filter { it.lowercase() !in present }
-    if (suggestions.isNotEmpty()) {
+    val remaining = suggestions.filter { it.lowercase() !in present }
+    if (remaining.isNotEmpty()) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(suggestions) { suggestion ->
+            items(remaining) { suggestion ->
                 AssistChip(
                     onClick = { onRowsChange(rows + MeasurementRow(label = suggestion)) },
                     label = { Text(suggestion) },

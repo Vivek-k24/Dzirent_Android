@@ -144,6 +144,9 @@ private fun ListingEditorForm(
 
     var title by rememberSaveable { mutableStateOf(original?.title.orEmpty()) }
     var category by rememberSaveable { mutableStateOf(original?.category ?: Categories.ALL.first()) }
+    var itemType by rememberSaveable { mutableStateOf(original?.itemType) }
+    var showItemTypeError by remember { mutableStateOf(false) }
+    val isAccessory = category == Categories.ACCESSORIES
     var sizeLabel by rememberSaveable { mutableStateOf(original?.sizeLabel.orEmpty()) }
     var description by rememberSaveable { mutableStateOf(original?.description.orEmpty()) }
     var priceNote by rememberSaveable { mutableStateOf(original?.priceNote.orEmpty()) }
@@ -168,6 +171,10 @@ private fun ListingEditorForm(
         if (photos.isEmpty()) return "Add at least one photo."
         if (photos.size > MAX_PHOTOS) return "You can add up to $MAX_PHOTOS photos."
         if (title.trim().length !in 3..80) return "Title must be 3 to 80 characters."
+        if (isAccessory && itemType == null) {
+            showItemTypeError = true
+            return "Choose an item type for Accessories."
+        }
         if (sizeLabel.isBlank()) return "Please enter a size."
         if (priceNote.isBlank()) return "Please enter a price note."
         if (priceNote.trim().length > 60) return "Price note can be up to 60 characters."
@@ -203,6 +210,7 @@ private fun ListingEditorForm(
             listing = base.copy(
                 title = title.trim(),
                 category = category,
+                itemType = if (isAccessory) itemType else null,
                 sizeLabel = sizeLabel.trim(),
                 description = description.trim(),
                 priceNote = priceNote.trim(),
@@ -328,8 +336,29 @@ private fun ListingEditorForm(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        CategoryPicker(selected = category, onSelected = { category = it })
+        CategoryPicker(
+            selected = category,
+            onSelected = {
+                category = it
+                if (it != Categories.ACCESSORIES) itemType = null
+            }
+        )
         Spacer(modifier = Modifier.height(12.dp))
+
+        if (isAccessory) {
+            ItemTypePicker(
+                selected = itemType,
+                onSelected = { itemType = it; showItemTypeError = false },
+                isError = showItemTypeError
+            )
+            Text(
+                text = DzirentPolicy.ACCESSORIES_NOT_ALLOWED,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
 
         OutlinedTextField(
             value = sizeLabel,
@@ -366,7 +395,7 @@ private fun ListingEditorForm(
         Spacer(modifier = Modifier.height(16.dp))
 
         MeasurementsSection(
-            category = category,
+            suggestions = Categories.measurementSuggestions(category, itemType),
             unit = unit,
             onUnitChange = { unit = it },
             rows = measurementRows,
@@ -452,6 +481,41 @@ private fun CategoryPicker(selected: String, onSelected: (String) -> Unit) {
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             Categories.ALL.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onSelected(option)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** Required "Item type" dropdown for Accessories (exactly [AccessoryTypes.ALL]). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ItemTypePicker(selected: String?, onSelected: (String) -> Unit, isError: Boolean) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selected.orEmpty(),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Item type") },
+            placeholder = { Text("Choose one") },
+            isError = isError,
+            supportingText = if (isError) {
+                { Text("Required for Accessories.") }
+            } else null,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            AccessoryTypes.ALL.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option) },
                     onClick = {

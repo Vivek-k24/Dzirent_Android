@@ -259,7 +259,7 @@ fun ListingCard(listing: Listing, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${listing.category} • ${listing.sizeLabel}",
+                    text = "${listing.typeLabel} • ${listing.sizeLabel}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -380,8 +380,10 @@ fun ListingDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = listOf(listing.category, listing.sizeLabel.ifBlank { null }?.let { "Size $it" })
-                            .filterNotNull().joinToString(" | "),
+                        text = listOfNotNull(
+                            listOfNotNull(listing.category, listing.itemType).joinToString(" · "),
+                            listing.sizeLabel.ifBlank { null }?.let { "Size $it" }
+                        ).joinToString(" | "),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.secondary
                     )
@@ -779,7 +781,7 @@ private fun ClosetListingCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${listing.category} · ${listing.sizeLabel}",
+                    text = "${listing.typeLabel} · ${listing.sizeLabel}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

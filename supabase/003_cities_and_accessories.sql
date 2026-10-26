@@ -82,9 +82,44 @@ begin
   return new;
 end; $$;
 
+-- 3) ACCESSORIES: "Bags & Accessories" becomes "Accessories", with a required item type
+-- (required by the app; the database only checks the allowed values).
+-- The old category check was declared inline in 001, so its name was generated. Drop every
+-- check on listings that mentions category or item_type, then add both back by name.
+do $$
+declare
+  r record;
+begin
+  for r in
+    select conname from pg_constraint
+    where conrelid = 'public.listings'::regclass
+      and contype = 'c'
+      and (pg_get_constraintdef(oid) like '%category%' or pg_get_constraintdef(oid) like '%item_type%')
+  loop
+    execute format('alter table public.listings drop constraint %I', r.conname);
+  end loop;
+end $$;
+
+update public.listings set category = 'Accessories' where category = 'Bags & Accessories';
+
+alter table public.listings
+  add constraint listings_category_check check (category in
+    ('Career & Professional','Occasion & Party','Cultural & Traditional',
+     'Everyday','Outerwear','Accessories'));
+
+alter table public.listings add column if not exists item_type text;
+alter table public.listings
+  add constraint listings_item_type_check check (
+    item_type is null
+    or (category = 'Accessories'
+        and item_type in ('Sunglasses','Handbag','Tie','Watch (non-smart)','Belt buckle')));
+
 -- =====================================================================
 -- CHECK QUERIES (optional)
 -- =====================================================================
 -- select count(*) from public.us_cities;                      -- about 32,000 after the import
 -- select * from public.search_cities('springfield', 20);      -- every Springfield, by state
 -- select * from public.search_cities('aus');                  -- Austin, Austintown, ...
+-- select category, item_type, count(*) from public.listings group by 1, 2 order by 1, 2;
+-- select conname, pg_get_constraintdef(oid) from pg_constraint
+--   where conrelid = 'public.listings'::regclass and contype = 'c';

@@ -48,7 +48,7 @@ Placeholders for `SUPABASE_URL` and `SUPABASE_ANON_KEY` are located in:
 3. Cultural & Traditional
 4. Everyday
 5. Outerwear
-6. Bags & Accessories
+6. Accessories (item type required: Sunglasses, Handbag, Tie, Watch (non-smart), Belt buckle)
 
 ---
 

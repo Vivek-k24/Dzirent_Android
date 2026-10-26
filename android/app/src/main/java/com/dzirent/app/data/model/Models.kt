@@ -40,6 +40,8 @@ data class Listing(
     @SerialName("lender_id") val lenderId: String,
     val title: String,
     val category: String,
+    /** Only for [Categories.ACCESSORIES]: one of [AccessoryTypes.ALL]. */
+    @SerialName("item_type") val itemType: String? = null,
     @SerialName("size_label") val sizeLabel: String = "",
     val description: String = "",
     @SerialName("price_note") val priceNote: String = "",
@@ -55,7 +57,10 @@ data class Listing(
     val availability: List<Availability> = emptyList(),
     val lender: Profile? = null,
     val distanceKm: Double? = null
-)
+) {
+    /** "Sunglasses" for accessories with a type, otherwise the category. For compact rows. */
+    val typeLabel: String get() = itemType ?: category
+}
 
 @Serializable
 data class ListingPhoto(
@@ -168,21 +173,40 @@ object Roles {
 }
 
 object Categories {
+    const val ACCESSORIES = "Accessories"
+
     val ALL = listOf(
         "Career & Professional",
         "Occasion & Party",
         "Cultural & Traditional",
         "Everyday",
         "Outerwear",
-        "Bags & Accessories"
+        ACCESSORIES
     )
 
-    val SUGGESTIONS = mapOf(
+    private val SUGGESTIONS = mapOf(
         "Career & Professional" to listOf("Shoulder", "Chest", "Sleeve", "Length", "Waist"),
         "Occasion & Party" to listOf("Bust", "Waist", "Hips", "Total Length", "Shoulder"),
         "Cultural & Traditional" to listOf("Chest/Bust", "Waist", "Kurta/Top Length", "Bottom Length", "Shoulder"),
         "Everyday" to listOf("Chest", "Length", "Waist", "Inseam"),
-        "Outerwear" to listOf("Chest", "Shoulder", "Sleeve Length", "Total Length"),
-        "Bags & Accessories" to listOf("Width", "Height", "Depth", "Strap Drop")
+        "Outerwear" to listOf("Chest", "Shoulder", "Sleeve Length", "Total Length")
+    )
+
+    /** Quick-add measurement labels; accessories get them per item type (none until one is picked). */
+    fun measurementSuggestions(category: String, itemType: String?): List<String> =
+        if (category == ACCESSORIES) AccessoryTypes.SUGGESTIONS[itemType].orEmpty()
+        else SUGGESTIONS[category].orEmpty()
+}
+
+/** Item types allowed in Accessories; the same list is in the listings_item_type_check constraint. */
+object AccessoryTypes {
+    val ALL = listOf("Sunglasses", "Handbag", "Tie", "Watch (non-smart)", "Belt buckle")
+
+    val SUGGESTIONS = mapOf(
+        "Sunglasses" to listOf("Lens width", "Bridge", "Temple length"),
+        "Handbag" to listOf("Width", "Height", "Depth", "Strap drop"),
+        "Tie" to listOf("Length", "Width"),
+        "Watch (non-smart)" to listOf("Case diameter", "Band length"),
+        "Belt buckle" to listOf("Width", "Height")
     )
 }
