@@ -21,6 +21,19 @@ data class Profile(
     val hasLocation: Boolean get() = approxLat != null && approxLng != null
 }
 
+/** A row of public.us_cities: a US city, town or CDP from the Census Gazetteer, rounded to ~1 km. */
+@Serializable
+data class UsCity(
+    val id: String,
+    val name: String,
+    val state: String,
+    val lat: Double,
+    val lng: Double
+) {
+    /** "Springfield, IL", the form saved as a profile's city. */
+    val label: String get() = "$name, $state"
+}
+
 @Serializable
 data class Listing(
     val id: String,

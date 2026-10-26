@@ -20,7 +20,8 @@ create table public.profiles (
   created_at timestamptz not null default now()
 );
 
--- Current version (city added by supabase/update_trigger.sql)
+-- Version from update_trigger.sql (adds city). 003_cities_and_accessories.sql replaces it
+-- with one that also saves approx_lat / approx_lng picked at sign-up.
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin

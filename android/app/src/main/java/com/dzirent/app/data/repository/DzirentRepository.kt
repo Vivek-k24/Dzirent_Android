@@ -126,7 +126,8 @@ class DzirentRepository {
 
     /**
      * Creates the account. A database trigger creates the profiles row from the metadata
-     * below, so the app never inserts into profiles itself.
+     * below (including the picked city's rounded location), so the app never inserts into
+     * profiles itself. [city] is optional; without it the app asks for a location after login.
      *
      * Returns null when Supabase requires email confirmation (no session yet). The caller
      * should tell the user to confirm their email and then log in.
@@ -137,9 +138,7 @@ class DzirentRepository {
         displayName: String,
         role: String,
         adultConfirmed: Boolean,
-        city: String,
-        lat: Double,
-        lng: Double
+        city: UsCity?
     ): Profile? {
         try {
             auth.signUpWith(Email) {
@@ -149,7 +148,11 @@ class DzirentRepository {
                     put("display_name", displayName)
                     put("role", role)
                     put("adult_confirmed", adultConfirmed)
-                    put("city", city)
+                    if (city != null) {
+                        put("city", city.label)
+                        put("approx_lat", roundCoord(city.lat))
+                        put("approx_lng", roundCoord(city.lng))
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -161,16 +164,17 @@ class DzirentRepository {
         val userId = auth.currentUserOrNull()?.id ?: return null
 
         return try {
-            postgrest.from("profiles").update(
-                buildJsonObject {
-                    put("city", city)
-                    if (lat != 0.0 || lng != 0.0) {
-                        put("approx_lat", roundCoord(lat))
-                        put("approx_lng", roundCoord(lng))
+            // Also saved by the trigger; repeated here in case the database runs an older trigger.
+            if (city != null) {
+                postgrest.from("profiles").update(
+                    buildJsonObject {
+                        put("city", city.label)
+                        put("approx_lat", roundCoord(city.lat))
+                        put("approx_lng", roundCoord(city.lng))
                     }
+                ) {
+                    filter { eq("id", userId) }
                 }
-            ) {
-                filter { eq("id", userId) }
             }
             getCurrentProfile()
         } catch (e: Exception) {
@@ -259,6 +263,24 @@ class DzirentRepository {
             return getCurrentProfile() ?: throw DzirentException("Couldn't load your profile. Please try again.")
         } catch (e: Exception) {
             throw fail("save your location", e)
+        }
+    }
+
+    /**
+     * Cities whose name starts with [query] (case-insensitive), by name then state. Every
+     * city with exactly that name is included even past [limit]. Works before login.
+     */
+    suspend fun searchCities(query: String, limit: Int = 20): List<UsCity> {
+        return try {
+            postgrest.rpc(
+                "search_cities",
+                buildJsonObject {
+                    put("p_query", query)
+                    put("p_limit", limit)
+                }
+            ).decodeList<UsCity>()
+        } catch (e: Exception) {
+            throw fail("search cities", e)
         }
     }
 

@@ -20,7 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.coroutines.resume
 
-/** An approximate place: coordinates already rounded to 2 decimals, plus a city name if known. */
+/** An approximate place: coordinates already rounded to 2 decimals, plus "City, ST" if known. */
 data class ApproxPlace(val lat: Double, val lng: Double, val city: String?)
 
 /**
@@ -62,7 +62,7 @@ class LocationService(context: Context) {
         return ApproxPlace(lat, lng, cityFor(lat, lng))
     }
 
-    /** City name for the given coordinates, or null if the Geocoder can't tell. */
+    /** "City, ST" for the given coordinates (just the city outside the US), or null if the Geocoder can't tell. */
     suspend fun cityFor(lat: Double, lng: Double): String? {
         val address = geocode { geocoder, onResult ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -74,25 +74,6 @@ class LocationService(context: Context) {
             }
         }
         return address?.cityName()
-    }
-
-    /** Coordinates for a typed city name, rounded, or null if it can't be found. */
-    suspend fun placeForCity(name: String): ApproxPlace? {
-        val address = geocode { geocoder, onResult ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                geocoder.getFromLocationName(name, 1, listener(onResult))
-                null
-            } else {
-                @Suppress("DEPRECATION")
-                geocoder.getFromLocationName(name, 1).orEmpty()
-            }
-        } ?: return null
-        if (!address.hasLatitude() || !address.hasLongitude()) return null
-        return ApproxPlace(
-            lat = roundCoord(address.latitude),
-            lng = roundCoord(address.longitude),
-            city = address.cityName() ?: name
-        )
     }
 
     /**
@@ -131,8 +112,15 @@ class LocationService(context: Context) {
         }
     }
 
-    private fun Address.cityName(): String? =
-        (locality ?: subAdminArea ?: adminArea)?.takeIf { it.isNotBlank() }
+    /** Same "City, ST" form as the city picker. The Geocoder reports Puerto Rico as its own country. */
+    private fun Address.cityName(): String? {
+        val city = (locality ?: subAdminArea)?.takeIf { it.isNotBlank() } ?: return null
+        return when (countryCode) {
+            "US" -> cityLabel(city, adminArea)
+            "PR" -> cityLabel(city, "PR")
+            else -> city
+        }
+    }
 
     private fun log(operation: String, e: Throwable) {
         val firstLine = e.message?.lineSequence()?.firstOrNull().orEmpty()

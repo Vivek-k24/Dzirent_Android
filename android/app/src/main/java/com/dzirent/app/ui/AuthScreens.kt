@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.Profile
+import com.dzirent.app.data.model.UsCity
 import com.dzirent.app.data.repository.DzirentRepository
 import kotlinx.coroutines.launch
 
@@ -260,7 +261,10 @@ fun SignUpScreen(
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
+    // Optional, but if anything is typed it must be a city picked from the list.
+    var city by remember { mutableStateOf<UsCity?>(null) }
+    var cityText by remember { mutableStateOf("") }
+    var showCityHint by remember { mutableStateOf(false) }
     var selectedRole by remember { mutableStateOf("both") } // 'renter', 'lender', 'both'
     var adultConfirmed by remember { mutableStateOf(false) }
     var policyAccepted by remember { mutableStateOf(false) }
@@ -366,11 +370,13 @@ fun SignUpScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            OutlinedTextField(
-                value = city,
-                onValueChange = { city = it },
-                label = { Text("City / Area") },
-                singleLine = true,
+            CityField(
+                repository = repository,
+                selected = city,
+                onSelected = { city = it },
+                onTextChange = { cityText = it; showCityHint = false },
+                label = "City (optional)",
+                showPickHint = showCityHint,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -456,6 +462,11 @@ fun SignUpScreen(
                         errorMessage = "Password must be at least 6 characters."
                         return@Button
                     }
+                    if (city == null && cityText.isNotBlank()) {
+                        showCityHint = true
+                        errorMessage = "Pick your city from the list, or clear the City field."
+                        return@Button
+                    }
                     if (!adultConfirmed) {
                         errorMessage = "You must confirm you are 18+ to proceed."
                         return@Button
@@ -475,9 +486,7 @@ fun SignUpScreen(
                                 displayName = displayName.trim(),
                                 role = selectedRole,
                                 adultConfirmed = true,
-                                city = if (city.isBlank()) "Nearby" else city.trim(),
-                                lat = 0.0,
-                                lng = 0.0
+                                city = city
                             )
                             isLoading = false
                             if (profile != null) {
