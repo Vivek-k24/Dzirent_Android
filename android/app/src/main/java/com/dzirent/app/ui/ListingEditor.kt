@@ -1,6 +1,8 @@
 package com.dzirent.app.ui
 
+import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -28,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.dzirent.app.data.ListingDraft
@@ -462,8 +465,13 @@ private fun CategoryPicker(selected: String, onSelected: (String) -> Unit) {
 }
 
 /**
- * 1 to 6 photos from the system Photo Picker (no storage permission) or the camera app via
- * a FileProvider URI (no camera permission). Thumbnails can be reordered and removed.
+ * 1 to 6 photos from the system Photo Picker or the camera app via a FileProvider URI.
+ * Thumbnails can be reordered and removed.
+ *
+ * The first time each source is used, a short explanation asks for consent (remembered in
+ * [PhotoConsentStore]). The camera then needs the CAMERA runtime permission, since the app
+ * declares it. The Photo Picker needs no storage permission, so the explanation is the only
+ * consent step for the gallery (READ_MEDIA_IMAGES is deliberately not requested).
  */
 @Composable
 private fun PhotosSection(
@@ -474,6 +482,9 @@ private fun PhotosSection(
     val context = LocalContext.current
     val remaining = MAX_PHOTOS - photos.size
     var pendingCameraUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val consent = remember { PhotoConsentStore(context) }
+    var askingConsent by remember { mutableStateOf<PhotoSource?>(null) }
+    var showCameraDenied by remember { mutableStateOf(false) }
 
     fun addUris(uris: List<Uri>) {
         val existingKeys = photos.map { it.key }.toSet()
@@ -491,6 +502,68 @@ private fun PhotosSection(
         val uri = pendingCameraUri
         pendingCameraUri = null
         if (saved && uri != null) addUris(listOf(Uri.parse(uri)))
+    }
+
+    fun openGallery() {
+        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    fun openCamera() {
+        val file = File(ListingPublisher.cameraDir(context), "${UUID.randomUUID()}.jpg")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        pendingCameraUri = uri.toString()
+        try {
+            cameraLauncher.launch(uri)
+        } catch (e: ActivityNotFoundException) {
+            pendingCameraUri = null
+            onMessage("No camera app found. Use Gallery instead.")
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) openCamera() else showCameraDenied = true
+    }
+
+    fun startCamera() {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) openCamera() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    fun start(source: PhotoSource) {
+        if (!consent.hasConsent(source)) {
+            askingConsent = source
+            return
+        }
+        when (source) {
+            PhotoSource.Camera -> startCamera()
+            PhotoSource.Gallery -> openGallery()
+        }
+    }
+
+    askingConsent?.let { source ->
+        PhotoConsentDialog(
+            source = source,
+            onContinue = {
+                askingConsent = null
+                consent.giveConsent(source)
+                start(source)
+            },
+            onDismiss = { askingConsent = null }
+        )
+    }
+
+    if (showCameraDenied) {
+        CameraDeniedDialog(
+            context = context,
+            onUseGallery = {
+                showCameraDenied = false
+                start(PhotoSource.Gallery)
+            },
+            onDismiss = { showCameraDenied = false }
+        )
     }
 
     Text(text = "Photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -520,9 +593,7 @@ private fun PhotosSection(
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
-            onClick = {
-                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
+            onClick = { start(PhotoSource.Gallery) },
             enabled = remaining > 0
         ) {
             Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -530,17 +601,7 @@ private fun PhotosSection(
             Text("Gallery")
         }
         OutlinedButton(
-            onClick = {
-                val file = File(ListingPublisher.cameraDir(context), "${UUID.randomUUID()}.jpg")
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                pendingCameraUri = uri.toString()
-                try {
-                    cameraLauncher.launch(uri)
-                } catch (e: ActivityNotFoundException) {
-                    pendingCameraUri = null
-                    onMessage("No camera app found. Use Gallery instead.")
-                }
-            },
+            onClick = { start(PhotoSource.Camera) },
             enabled = remaining > 0
         ) {
             Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
