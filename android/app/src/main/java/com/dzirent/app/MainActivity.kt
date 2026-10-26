@@ -14,6 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -125,14 +126,14 @@ fun AuthNavHost(
     }
 }
 
-/** A bottom-bar destination. */
+/** A bottom-bar destination. Labels are one short word so five tabs fit on narrow phones. */
 private data class TabItem(val route: String, val label: String, val icon: ImageVector)
 
 private val TabBrowse = TabItem("browse", "Browse", Icons.Default.Search)
 private val TabInbox = TabItem("inbox", "Inbox", Icons.Default.MailOutline)
 private val TabList = TabItem("list", "List", Icons.Default.AddCircleOutline)
-private val TabCloset = TabItem("closet", "My Closet", Icons.Default.Checkroom)
-private val TabRentals = TabItem("rentals", "My Rentals", Icons.Default.ShoppingBag)
+private val TabCloset = TabItem("closet", "Closet", Icons.Default.Checkroom)
+private val TabRentals = TabItem("rentals", "Rentals", Icons.Default.ShoppingBag)
 private val TabProfile = TabItem("profile", "Profile", Icons.Default.Person)
 
 private fun tabsFor(role: String): List<TabItem> = when (role) {
@@ -203,7 +204,9 @@ fun MainAppScaffold(
                 tabs.forEach { tab ->
                     NavigationBarItem(
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, maxLines = 1) },
+                        label = {
+                            Text(tab.label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                        },
                         selected = currentTab == tab.route,
                         onClick = { openTab(tab.route) }
                     )

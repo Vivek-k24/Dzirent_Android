@@ -117,6 +117,7 @@ fun BrowseScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
 
+        // Both chip rows scroll sideways; the end padding lets the last chip scroll fully into view.
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -125,7 +126,7 @@ fun BrowseScreen(
                 FilterChip(
                     selected = selectedCategory == null,
                     onClick = { selectedCategory = null },
-                    label = { Text("All") }
+                    label = { Text("All", maxLines = 1) }
                 )
             }
             items(Categories.ALL) { category ->
@@ -134,36 +135,40 @@ fun BrowseScreen(
                     onClick = {
                         selectedCategory = if (selectedCategory == category) null else category
                     },
-                    label = { Text(category) }
+                    label = { Text(category, maxLines = 1) }
                 )
             }
         }
 
+        // The city gets its own line so a long name can't push the distance chips off-screen.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.NearMe,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Distance from ${profile.city.ifBlank { "you" }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item {
-                Icon(
-                    imageVector = Icons.Default.NearMe,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
             items(DISTANCE_OPTIONS_KM) { km ->
                 FilterChip(
                     selected = radiusKm == km,
                     onClick = { radiusKm = km },
-                    label = { Text("$km km") }
-                )
-            }
-            item {
-                Text(
-                    text = "of ${profile.city.ifBlank { "you" }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    label = { Text("$km km", maxLines = 1) }
                 )
             }
         }
@@ -575,22 +580,41 @@ fun MyClosetScreen(
     onEditListing: (listingId: String) -> Unit,
     onOpenChat: (conversationId: String) -> Unit
 ) {
-    if (!showRentalsTab) {
-        MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
-        return
-    }
-
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = selectedTab) {
-            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Listings") })
-            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("My Rentals") })
-        }
-        when (selectedTab) {
-            0 -> MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
-            else -> MyRentalsScreen(repository = repository, currentUserId = currentUserId, onOpenChat = onOpenChat)
+        // The bottom bar says "Closet"; the screen keeps the full name.
+        ScreenTitle("My Closet")
+        if (!showRentalsTab) {
+            MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
+        } else {
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Listings") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("My Rentals") })
+            }
+            when (selectedTab) {
+                0 -> MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
+                else -> MyRentalsScreen(
+                    repository = repository,
+                    currentUserId = currentUserId,
+                    showTitle = false,
+                    onOpenChat = onOpenChat
+                )
+            }
         }
     }
+}
+
+/** Heading for bottom-bar screens, which have no top app bar. */
+@Composable
+private fun ScreenTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+    )
 }
 
 private data class ClosetData(val listings: List<Listing>, val rentedOut: Set<String>)
@@ -813,10 +837,13 @@ private fun StatusBadge(text: String, highlighted: Boolean, emphasis: Boolean = 
 }
 
 // --- MY RENTALS SCREEN ---
+
+/** [showTitle] is false inside My Closet, whose tab row already says "My Rentals". */
 @Composable
 fun MyRentalsScreen(
     repository: DzirentRepository,
     currentUserId: String,
+    showTitle: Boolean = true,
     onOpenChat: (conversationId: String) -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<List<Rental>>>(UiState.Loading) }
@@ -837,35 +864,38 @@ fun MyRentalsScreen(
         loadRentals()
     }
 
-    when (val state = uiState) {
-        is UiState.Loading -> LoadingView(message = "Loading your rentals...")
-        is UiState.Error -> ErrorView(message = state.message, onRetry = { loadRentals() })
-        is UiState.Success -> {
-            // Cancelled deals never happened, so they aren't rentals worth listing.
-            val active = state.data.filter { it.status == "active" }
-            val past = state.data.filter { it.status == "returned" }
-            if (active.isEmpty() && past.isEmpty()) {
-                EmptyView(
-                    title = "No active rentals yet",
-                    description = "No active rentals yet. When you rent something, mark it as rented in the chat and it will show up here.",
-                    icon = Icons.Default.ShoppingBag
-                )
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    if (active.isNotEmpty()) {
-                        item { SectionHeader("Active") }
-                        items(active, key = { it.conversationId }) { rental ->
-                            RentalRow(rental = rental, onClick = { onOpenChat(rental.conversationId) })
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (showTitle) ScreenTitle("My Rentals")
+        when (val state = uiState) {
+            is UiState.Loading -> LoadingView(message = "Loading your rentals...")
+            is UiState.Error -> ErrorView(message = state.message, onRetry = { loadRentals() })
+            is UiState.Success -> {
+                // Cancelled deals never happened, so they aren't rentals worth listing.
+                val active = state.data.filter { it.status == "active" }
+                val past = state.data.filter { it.status == "returned" }
+                if (active.isEmpty() && past.isEmpty()) {
+                    EmptyView(
+                        title = "No active rentals yet",
+                        description = "No active rentals yet. When you rent something, mark it as rented in the chat and it will show up here.",
+                        icon = Icons.Default.ShoppingBag
+                    )
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (active.isNotEmpty()) {
+                            item { SectionHeader("Active") }
+                            items(active, key = { it.conversationId }) { rental ->
+                                RentalRow(rental = rental, onClick = { onOpenChat(rental.conversationId) })
+                            }
                         }
-                    }
-                    if (past.isNotEmpty()) {
-                        item { SectionHeader("Past") }
-                        items(past, key = { it.conversationId }) { rental ->
-                            RentalRow(rental = rental, onClick = { onOpenChat(rental.conversationId) })
+                        if (past.isNotEmpty()) {
+                            item { SectionHeader("Past") }
+                            items(past, key = { it.conversationId }) { rental ->
+                                RentalRow(rental = rental, onClick = { onOpenChat(rental.conversationId) })
+                            }
                         }
                     }
                 }
