@@ -889,7 +889,10 @@ fun ProfileScreen(
     onProfileUpdated: (Profile) -> Unit,
     onBack: () -> Unit,
     onOpenMeasurements: () -> Unit,
-    onOpenMyStudio: () -> Unit
+    onOpenMyStudio: () -> Unit,
+    showFinishSetup: Boolean,
+    onOpenSetup: () -> Unit,
+    onDismissSetup: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(true) }
@@ -995,6 +998,10 @@ fun ProfileScreen(
             refreshError?.let { message ->
                 PolicyNotice(text = message, modifier = Modifier.padding(bottom = 8.dp))
                 TextButton(onClick = { refresh() }) { Text("Retry") }
+            }
+            if (showFinishSetup) {
+                FinishSetupCard(onOpen = onOpenSetup, onDismiss = onDismissSetup)
+                Spacer(modifier = Modifier.height(16.dp))
             }
             Spacer(modifier = Modifier.height(8.dp))
             Avatar(name = profile.displayName, size = 80.dp)

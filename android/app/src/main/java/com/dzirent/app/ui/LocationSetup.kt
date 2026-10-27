@@ -1,7 +1,6 @@
 package com.dzirent.app.ui
 
 import android.Manifest
-import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -187,14 +186,3 @@ fun LocationSetupDialog(
 
 private const val LOCATION_REASON =
     "Dzirent uses your approximate location (about 1 km) to show clothes near you."
-
-/** Remembers that we already asked a user to set their location after login. */
-class LocationPromptStore(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("dzirent_prefs", Context.MODE_PRIVATE)
-
-    fun wasAsked(userId: String): Boolean = prefs.getBoolean("location_prompt_shown_$userId", false)
-
-    fun markAsked(userId: String) {
-        prefs.edit().putBoolean("location_prompt_shown_$userId", true).apply()
-    }
-}

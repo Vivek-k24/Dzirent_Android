@@ -29,6 +29,7 @@ import com.dzirent.app.data.model.Profile
 import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.util.BrowseFilters
 import com.dzirent.app.util.DISTANCE_OPTIONS_KM
+import com.dzirent.app.util.GuideTarget
 import com.dzirent.app.util.HOME_ROW_MIN
 import com.dzirent.app.util.HomeRow
 import com.dzirent.app.util.HomeSections
@@ -138,7 +139,12 @@ private fun HomeTopBar(profile: Profile, onAvatar: () -> Unit, onLocation: () ->
             .height(56.dp)
             .padding(horizontal = 8.dp)
     ) {
-        IconButton(onClick = onAvatar, modifier = Modifier.align(Alignment.CenterStart)) {
+        IconButton(
+            onClick = onAvatar,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .guideTarget(GuideTarget.AVATAR)
+        ) {
             Avatar(name = profile.displayName, size = 32.dp)
         }
         // Placeholder logo until the brand rework.
@@ -191,7 +197,8 @@ private fun DateBar(text: String, onClick: () -> Unit) {
             Surface(
                 onClick = onClick,
                 shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.guideTarget(GuideTarget.DATE_CHIP)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

@@ -28,6 +28,7 @@ fun SettingsScreen(
     onOpenBlockedUsers: () -> Unit,
     onOpenCommunityPolicy: () -> Unit,
     onOpenHowItWorks: () -> Unit,
+    onAppTour: () -> Unit,
     onSignOut: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -53,6 +54,7 @@ fun SettingsScreen(
             SettingsRow("Blocked users", null, Icons.Default.Block, onOpenBlockedUsers)
             SettingsRow(DzirentPolicy.COMMUNITY_TITLE, null, Icons.Default.Shield, onOpenCommunityPolicy)
             SettingsRow(DzirentPolicy.TITLE, null, Icons.Default.Info, onOpenHowItWorks)
+            SettingsRow("App tour", "A quick look at where things are", Icons.Default.Explore, onAppTour)
 
             Spacer(modifier = Modifier.height(32.dp))
             error?.let {
