@@ -2,16 +2,19 @@ package com.dzirent.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.repository.DzirentException
+import com.dzirent.app.ui.theme.DzirentAccent
 
 /**
  * The text to show on screen for an error. Only DzirentException messages are written
@@ -19,6 +22,17 @@ import com.dzirent.app.data.repository.DzirentException
  */
 fun Throwable.userMessage(fallback: String = "Something went wrong. Please try again."): String =
     if (this is DzirentException) message ?: fallback else fallback
+
+/** Small accent dot: unread messages or new activity. */
+@Composable
+fun AccentDot(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(DzirentAccent)
+    )
+}
 
 /** Shown wherever a listing has no photos (pilot test listings have none). */
 @Composable

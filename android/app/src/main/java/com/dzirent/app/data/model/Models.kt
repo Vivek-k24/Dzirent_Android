@@ -214,7 +214,15 @@ data class Rental(
     @SerialName("updated_at") val updatedAt: String? = null,
     // Embedded via select(), never written.
     val listing: Listing? = null,
-    val lender: Profile? = null
+    val lender: Profile? = null,
+    val renter: Profile? = null
+)
+
+/** My row of public.conversation_reads: when I last opened that chat. */
+@Serializable
+data class ConversationRead(
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("last_read_at") val lastReadAt: String? = null
 )
 
 @Serializable

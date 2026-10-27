@@ -56,6 +56,7 @@ fun BrowseScreen(
     repository: DzirentRepository,
     profile: Profile,
     onSetLocation: () -> Unit,
+    onOpenProfile: () -> Unit,
     onListingClick: (String) -> Unit
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -100,6 +101,9 @@ fun BrowseScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        IconButton(onClick = onOpenProfile, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
+            Icon(Icons.Default.AccountCircle, contentDescription = "Profile")
+        }
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -625,6 +629,7 @@ fun MyClosetScreen(
     repository: DzirentRepository,
     currentUserId: String,
     showRentalsTab: Boolean,
+    onListItem: () -> Unit,
     onOpenListing: (listingId: String) -> Unit,
     onEditListing: (listingId: String) -> Unit,
     onOpenChat: (conversationId: String) -> Unit
@@ -633,6 +638,17 @@ fun MyClosetScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         // The bottom bar says "Closet"; the screen keeps the full name.
         ScreenTitle("My Closet")
+        Button(
+            onClick = onListItem,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .height(50.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("List an item")
+        }
         if (!showRentalsTab) {
             MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
         } else {
@@ -655,7 +671,7 @@ fun MyClosetScreen(
 
 /** Heading for bottom-bar screens, which have no top app bar. */
 @Composable
-private fun ScreenTitle(text: String) {
+fun ScreenTitle(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.headlineSmall,
@@ -761,7 +777,7 @@ private fun MyListingsContent(
             if (state.data.listings.isEmpty()) {
                 EmptyView(
                     title = "Your Closet is Empty",
-                    description = "You haven't listed any clothes yet. Tap 'List' to share items from your wardrobe!",
+                    description = "You haven't listed any clothes yet. Tap \"List an item\" to share pieces from your wardrobe.",
                     icon = Icons.Default.Checkroom
                 )
             } else {

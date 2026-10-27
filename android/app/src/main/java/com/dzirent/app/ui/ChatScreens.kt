@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,7 +27,10 @@ import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.CANT_MESSAGE_USER
 import com.dzirent.app.data.repository.ChatSubscription
 import com.dzirent.app.data.repository.DzirentRepository
+import com.dzirent.app.data.repository.InboxSnapshot
+import com.dzirent.app.util.ActivityItem
 import com.dzirent.app.util.DateRange
+import com.dzirent.app.util.FOLLOW_UP_AFTER_DAYS
 import com.dzirent.app.util.daysSince
 import com.dzirent.app.util.formatInboxTime
 import com.dzirent.app.util.formatMessageTime
@@ -38,58 +42,148 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // --- INBOX SCREEN ---
+
+/**
+ * Two tabs: Messages (my chats, unread ones marked) and Activity (rental changes and
+ * follow-up reminders). [onNewsChanged] keeps the dot on the Inbox tab in sync.
+ */
 @Composable
 fun InboxScreen(
     repository: DzirentRepository,
     currentUserId: String,
-    onConversationClick: (Conversation) -> Unit
+    onConversationClick: (conversationId: String) -> Unit,
+    onNewsChanged: (Boolean) -> Unit
 ) {
-    var uiState by remember { mutableStateOf<UiState<List<Conversation>>>(UiState.Loading) }
+    var uiState by remember { mutableStateOf<UiState<InboxSnapshot>>(UiState.Loading) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    // Items that were new when this visit started keep their mark until the screen closes.
+    var activitySeenThisVisit by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    fun loadConversations() {
+    fun load() {
         scope.launch {
             uiState = UiState.Loading
             try {
-                uiState = UiState.Success(repository.getConversations(currentUserId))
+                val snapshot = repository.getInboxSnapshot(currentUserId)
+                uiState = UiState.Success(snapshot)
+                onNewsChanged(snapshot.hasNews)
             } catch (e: Exception) {
-                uiState = UiState.Error(e.userMessage("Failed to load conversations."))
+                uiState = UiState.Error(e.userMessage("Failed to load your inbox."))
             }
         }
     }
 
     // Runs each time the Inbox tab is opened, since the screen re-enters composition.
-    LaunchedEffect(currentUserId) {
-        loadConversations()
+    LaunchedEffect(currentUserId) { load() }
+
+    val snapshot = (uiState as? UiState.Success)?.data
+    LaunchedEffect(selectedTab, snapshot) {
+        if (selectedTab == 1 && snapshot != null && !activitySeenThisVisit) {
+            activitySeenThisVisit = true
+            repository.markActivitySeen()
+            onNewsChanged(snapshot.unreadIds.isNotEmpty())
+        }
     }
 
-    when (val state = uiState) {
-        is UiState.Loading -> LoadingView(message = "Loading messages...")
-        is UiState.Error -> ErrorView(message = state.message, onRetry = { loadConversations() })
-        is UiState.Success -> {
-            if (state.data.isEmpty()) {
-                EmptyView(
-                    title = "No Conversations Yet",
-                    description = "When you message lenders or renters, your chat threads will appear here.",
-                    icon = Icons.Default.ChatBubbleOutline
-                )
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(state.data, key = { it.id }) { conv ->
-                        InboxRow(conv = conv, currentUserId = currentUserId, onClick = { onConversationClick(conv) })
-                    }
+    Column(modifier = Modifier.fillMaxSize()) {
+        ScreenTitle("Inbox")
+        TabRow(selectedTabIndex = selectedTab) {
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                text = { TabLabel("Messages", dot = snapshot?.unreadIds?.isNotEmpty() == true) }
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = {
+                    TabLabel("Activity", dot = !activitySeenThisVisit && snapshot?.activity?.any { it.isNew } == true)
                 }
+            )
+        }
+        when (val state = uiState) {
+            is UiState.Loading -> LoadingView(message = "Loading your inbox...")
+            is UiState.Error -> ErrorView(message = state.message, onRetry = { load() })
+            is UiState.Success -> if (selectedTab == 0) {
+                MessagesList(state.data, currentUserId, onConversationClick)
+            } else {
+                ActivityList(state.data.activity, onConversationClick)
             }
         }
     }
 }
 
 @Composable
-private fun InboxRow(conv: Conversation, currentUserId: String, onClick: () -> Unit) {
+private fun TabLabel(text: String, dot: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(text, maxLines = 1)
+        if (dot) {
+            Spacer(modifier = Modifier.width(6.dp))
+            AccentDot()
+        }
+    }
+}
+
+@Composable
+private fun MessagesList(snapshot: InboxSnapshot, currentUserId: String, onConversationClick: (String) -> Unit) {
+    if (snapshot.conversations.isEmpty()) {
+        EmptyView(
+            title = "No messages yet",
+            description = "When you message a lender or a renter messages you, your chats show up here.",
+            icon = Icons.Default.ChatBubbleOutline
+        )
+        return
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(snapshot.conversations, key = { it.id }) { conv ->
+            InboxRow(
+                conv = conv,
+                currentUserId = currentUserId,
+                unread = conv.id in snapshot.unreadIds,
+                onClick = { onConversationClick(conv.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActivityList(items: List<ActivityItem>, onConversationClick: (String) -> Unit) {
+    if (items.isEmpty()) {
+        EmptyView(
+            title = "No activity yet",
+            description = "Rental updates and reminders about your chats show up here.",
+            icon = Icons.Default.NotificationsNone
+        )
+        return
+    }
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        items(items, key = { "${it.kind}-${it.conversationId}" }) { item ->
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = item.text,
+                        fontWeight = if (item.isNew) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                supportingContent = { Text(formatInboxTime(item.time.toString())) },
+                trailingContent = if (item.isNew) {
+                    { AccentDot() }
+                } else null,
+                modifier = Modifier.clickable { onConversationClick(item.conversationId) }
+            )
+            HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+private fun InboxRow(conv: Conversation, currentUserId: String, unread: Boolean, onClick: () -> Unit) {
     val last = conv.lastMessage
     Card(
         modifier = Modifier
@@ -113,6 +207,10 @@ private fun InboxRow(conv: Conversation, currentUserId: String, onClick: () -> U
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
+                    if (unread) {
+                        AccentDot()
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     Text(
                         text = formatInboxTime(last?.createdAt ?: conv.createdAt),
                         style = MaterialTheme.typography.labelSmall,
@@ -133,7 +231,8 @@ private fun InboxRow(conv: Conversation, currentUserId: String, onClick: () -> U
                         else -> last.body
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
+                    color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -146,7 +245,6 @@ private fun InboxRow(conv: Conversation, currentUserId: String, onClick: () -> U
 
 private val QUICK_REPLIES = listOf("Is this available on these dates?", "Can I see more photos?")
 private const val MESSAGE_MAX = 2000
-private const val FOLLOW_UP_AFTER_DAYS = 3L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -200,6 +298,7 @@ fun ChatScreen(
             rental = loadedRental
             myOutcome = outcome
             uiState = UiState.Success(conversation)
+            repository.markConversationRead(conversationId)
         } catch (e: Exception) {
             uiState = UiState.Error(e.userMessage("Couldn't open this chat. Please try again."))
         }
@@ -217,7 +316,13 @@ fun ChatScreen(
                 null
             }
             subscription?.let { sub ->
-                launch { sub.messages.collect { merge(listOf(it)) } }
+                launch {
+                    sub.messages.collect { message ->
+                        merge(listOf(message))
+                        // I'm looking at it, so it's read.
+                        if (message.senderId != currentUserId) repository.markConversationRead(conversationId)
+                    }
+                }
                 launch { sub.rentals.collect { rental = it } }
             }
             loadAll()

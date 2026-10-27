@@ -11,19 +11,26 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.Profile
 import com.dzirent.app.data.model.Roles
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.ui.*
+import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.ui.theme.DzirentTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 sealed class AuthState {
@@ -129,17 +136,14 @@ fun AuthNavHost(
 /** A bottom-bar destination. Labels are one short word so five tabs fit on narrow phones. */
 private data class TabItem(val route: String, val label: String, val icon: ImageVector)
 
-private val TabBrowse = TabItem("browse", "Browse", Icons.Default.Search)
+private val TabHome = TabItem("home", "Home", Icons.Default.Home)
 private val TabInbox = TabItem("inbox", "Inbox", Icons.Default.MailOutline)
-private val TabList = TabItem("list", "List", Icons.Default.AddCircleOutline)
+private val TabSearch = TabItem("search", "Search", Icons.Default.Search)
 private val TabCloset = TabItem("closet", "Closet", Icons.Default.Checkroom)
-private val TabRentals = TabItem("rentals", "Rentals", Icons.Default.ShoppingBag)
-private val TabProfile = TabItem("profile", "Profile", Icons.Default.Person)
+private val TabBag = TabItem("bag", "Bag", Icons.Default.BookmarkBorder)
 
-private fun tabsFor(role: String): List<TabItem> = when (role) {
-    Roles.LENDER, Roles.BOTH -> listOf(TabBrowse, TabInbox, TabList, TabCloset, TabProfile)
-    else -> listOf(TabBrowse, TabInbox, TabRentals, TabProfile)
-}
+/** How often the Inbox dot re-checks for news while the app is open. */
+private const val INBOX_REFRESH_MS = 60_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,18 +155,31 @@ fun MainAppScaffold(
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    // Profile lives here so a role change on the Profile screen updates the bottom bar at once.
+    // Profile lives here so a role change on the Profile screen updates the app at once.
     var profile by remember { mutableStateOf(userProfile) }
-    var currentTab by rememberSaveable { mutableStateOf(TabBrowse.route) }
-    val tabs = tabsFor(profile.role)
+    var currentTab by rememberSaveable { mutableStateOf(TabHome.route) }
     var showLocationSetup by remember { mutableStateOf(false) }
     val locationPrompts = remember { LocationPromptStore(context) }
+    var inboxHasNews by remember { mutableStateOf(false) }
+    val backStackEntry by navController.currentBackStackEntryAsState()
 
     // Ask once, right after login, if the profile has no location yet.
     LaunchedEffect(profile.id) {
         if (!profile.hasLocation && !locationPrompts.wasAsked(profile.id)) {
             locationPrompts.markAsked(profile.id)
             showLocationSetup = true
+        }
+    }
+
+    // The Inbox dot: refresh on every screen change and once a minute.
+    suspend fun refreshInboxDot() {
+        runCatching { repository.getInboxSnapshot(profile.id).hasNews }.onSuccess { inboxHasNews = it }
+    }
+    LaunchedEffect(backStackEntry?.destination?.route) { refreshInboxDot() }
+    LaunchedEffect(profile.id) {
+        while (true) {
+            delay(INBOX_REFRESH_MS)
+            refreshInboxDot()
         }
     }
 
@@ -181,49 +198,51 @@ fun MainAppScaffold(
     fun openTab(route: String) {
         currentTab = route
         navController.navigate(route) {
-            popUpTo(TabBrowse.route) { saveState = true }
+            popUpTo(TabHome.route) { saveState = true }
             launchSingleTop = true
             restoreState = true
         }
     }
 
-    // If a role change removed the tab we're on, fall back to Browse.
-    LaunchedEffect(profile.role) {
-        if (tabs.none { it.route == currentTab }) {
-            currentTab = TabBrowse.route
-            navController.navigate(TabBrowse.route) {
-                popUpTo(TabBrowse.route) { inclusive = false }
-                launchSingleTop = true
-            }
-        }
-    }
+    fun openChat(conversationId: String) = navController.navigate("chat/$conversationId")
 
     Scaffold(
         bottomBar = {
             NavigationBar {
-                tabs.forEach { tab ->
-                    NavigationBarItem(
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = {
-                            Text(tab.label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-                        },
-                        selected = currentTab == tab.route,
-                        onClick = { openTab(tab.route) }
-                    )
+                listOf(TabHome, TabInbox).forEach { tab ->
+                    BottomTab(tab, selected = currentTab == tab.route, dot = tab == TabInbox && inboxHasNews) {
+                        openTab(tab.route)
+                    }
+                }
+                SearchTabButton(onClick = { openTab(TabSearch.route) })
+                listOf(TabCloset, TabBag).forEach { tab ->
+                    BottomTab(tab, selected = currentTab == tab.route, dot = false) { openTab(tab.route) }
                 }
             }
         }
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = TabBrowse.route,
+            startDestination = TabHome.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable("browse") {
+            composable("home") {
                 BrowseScreen(
                     repository = repository,
                     profile = profile,
                     onSetLocation = { showLocationSetup = true },
+                    onOpenProfile = { navController.navigate("profile") },
+                    onListingClick = { listingId ->
+                        navController.navigate("detail/$listingId")
+                    }
+                )
+            }
+            composable("search") {
+                BrowseScreen(
+                    repository = repository,
+                    profile = profile,
+                    onSetLocation = { showLocationSetup = true },
+                    onOpenProfile = { navController.navigate("profile") },
                     onListingClick = { listingId ->
                         navController.navigate("detail/$listingId")
                     }
@@ -246,7 +265,7 @@ fun MainAppScaffold(
                                     renterId = profile.id,
                                     lenderId = lenderId
                                 )
-                                navController.navigate("chat/${conversation.id}")
+                                openChat(conversation.id)
                             } catch (e: Exception) {
                                 Toast.makeText(
                                     context,
@@ -262,9 +281,8 @@ fun MainAppScaffold(
                 InboxScreen(
                     repository = repository,
                     currentUserId = profile.id,
-                    onConversationClick = { conv ->
-                        navController.navigate("chat/${conv.id}")
-                    }
+                    onConversationClick = { conversationId -> openChat(conversationId) },
+                    onNewsChanged = { inboxHasNews = it }
                 )
             }
             composable("chat/{conversationId}") { backStackEntry ->
@@ -283,15 +301,8 @@ fun MainAppScaffold(
                     profile = profile,
                     listingId = null,
                     onSetLocation = { showLocationSetup = true },
-                    onBack = null,
-                    onSaved = {
-                        // Drop the filled-in form so the List tab starts fresh next time.
-                        navController.navigate(TabCloset.route) {
-                            popUpTo(TabBrowse.route)
-                            launchSingleTop = true
-                        }
-                        currentTab = TabCloset.route
-                    }
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() }
                 )
             }
             composable("edit/{listingId}") { backStackEntry ->
@@ -306,20 +317,30 @@ fun MainAppScaffold(
                 )
             }
             composable("closet") {
-                MyClosetScreen(
-                    repository = repository,
-                    currentUserId = profile.id,
-                    showRentalsTab = profile.role == Roles.BOTH,
-                    onOpenListing = { id -> navController.navigate("detail/$id") },
-                    onEditListing = { id -> navController.navigate("edit/$id") },
-                    onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") }
-                )
+                // Lenders see their listings (and "List an item"); renters see their rentals.
+                if (Roles.canLend(profile.role)) {
+                    MyClosetScreen(
+                        repository = repository,
+                        currentUserId = profile.id,
+                        showRentalsTab = profile.role == Roles.BOTH,
+                        onListItem = { navController.navigate("list") },
+                        onOpenListing = { id -> navController.navigate("detail/$id") },
+                        onEditListing = { id -> navController.navigate("edit/$id") },
+                        onOpenChat = { conversationId -> openChat(conversationId) }
+                    )
+                } else {
+                    MyRentalsScreen(
+                        repository = repository,
+                        currentUserId = profile.id,
+                        onOpenChat = { conversationId -> openChat(conversationId) }
+                    )
+                }
             }
-            composable("rentals") {
-                MyRentalsScreen(
-                    repository = repository,
-                    currentUserId = profile.id,
-                    onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") }
+            composable("bag") {
+                EmptyView(
+                    title = "Your Bag is empty",
+                    description = "Pieces you save will show up here.",
+                    icon = Icons.Default.BookmarkBorder
                 )
             }
             composable("profile") {
@@ -350,6 +371,46 @@ fun MainAppScaffold(
             }
             composable("policy") {
                 HowDzirentWorksScreen(onBack = { navController.popBackStack() })
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.BottomTab(tab: TabItem, selected: Boolean, dot: Boolean, onClick: () -> Unit) {
+    NavigationBarItem(
+        icon = {
+            BadgedBox(badge = { if (dot) AccentDot() }) {
+                Icon(tab.icon, contentDescription = if (dot) "${tab.label}, new" else tab.label)
+            }
+        },
+        label = {
+            Text(tab.label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+        },
+        selected = selected,
+        onClick = onClick
+    )
+}
+
+/** The raised, accent-colored Search button in the middle of the bottom bar. */
+@Composable
+private fun RowScope.SearchTabButton(onClick: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+    ) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = DzirentAccent,
+            contentColor = Color.White,
+            shadowElevation = 6.dp,
+            modifier = Modifier.size(56.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Search, contentDescription = TabSearch.label, modifier = Modifier.size(28.dp))
             }
         }
     }

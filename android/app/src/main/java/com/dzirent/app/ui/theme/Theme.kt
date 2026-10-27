@@ -15,6 +15,9 @@ val AccentBlue = Color(0xFF2A64F6)
 val SoftGreyLight = Color(0xFFF6F7F9)
 val SoftGreyDark = Color(0xFF1E2024)
 
+/** The one accent: center Search button, notification dots, selected category, active tab. */
+val DzirentAccent = AccentBlue
+
 private val DarkColorScheme = darkColorScheme(
     primary = AccentBlue,
     onPrimary = Color.White,

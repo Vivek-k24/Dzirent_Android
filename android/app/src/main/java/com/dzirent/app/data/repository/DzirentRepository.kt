@@ -7,7 +7,10 @@ import android.media.ExifInterface
 import android.util.Log
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
+import com.dzirent.app.util.ActivityItem
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.buildActivity
+import com.dzirent.app.util.hasUnread
 import com.dzirent.app.util.haversineKm
 import com.dzirent.app.util.roundCoord
 import com.dzirent.app.util.timestampMillis
@@ -67,6 +70,19 @@ private const val LISTING_WITH_CHILDREN =
 
 @Serializable
 private data class ListingIdRow(@SerialName("listing_id") val listingId: String)
+
+@Serializable
+private data class ConversationIdRow(@SerialName("conversation_id") val conversationId: String)
+
+/** Everything Inbox and its dot need: my chats, which are unread, and Activity. */
+data class InboxSnapshot(
+    val conversations: List<Conversation>,
+    val unreadIds: Set<String>,
+    val activity: List<ActivityItem>
+) {
+    /** Shows the dot on the Inbox tab. */
+    val hasNews: Boolean get() = unreadIds.isNotEmpty() || activity.any { it.isNew }
+}
 
 /** Photos in display order, ranges by start date. */
 private fun Listing.sorted(): Listing = copy(
@@ -694,6 +710,62 @@ class DzirentRepository {
                 .sortedByDescending { timestampMillis(it.lastMessage?.createdAt ?: it.createdAt) }
         } catch (e: Exception) {
             throw fail("load your messages", e)
+        }
+    }
+
+    /**
+     * Conversations with unread flags plus Activity (rental changes and follow-ups).
+     * Read times come from conversation_reads, last Activity visit from private_profiles.
+     */
+    suspend fun getInboxSnapshot(userId: String): InboxSnapshot {
+        val conversations = getConversations(userId)
+        return try {
+            val reads = postgrest.from("conversation_reads").select(Columns.list("conversation_id", "last_read_at")) {
+                filter { eq("user_id", userId) }
+            }.decodeList<ConversationRead>().associate { it.conversationId to it.lastReadAt }
+            val rentals = postgrest.from("rentals").select(
+                Columns.raw(
+                    "*, listing:listings(*), " +
+                        "renter:profiles!rentals_renter_id_fkey(id, display_name, city), " +
+                        "lender:profiles!rentals_lender_id_fkey(id, display_name, city)"
+                )
+            ) {
+                filter {
+                    or {
+                        eq("renter_id", userId)
+                        eq("lender_id", userId)
+                    }
+                }
+            }.decodeList<Rental>()
+            val answered = postgrest.from("rental_outcomes").select(Columns.list("conversation_id")) {
+                filter { eq("user_id", userId) }
+            }.decodeList<ConversationIdRow>().map { it.conversationId }.toSet()
+            val seenAt = getPrivateProfile(userId).activitySeenAt
+            InboxSnapshot(
+                conversations = conversations,
+                unreadIds = conversations.filter { hasUnread(it, userId, reads[it.id]) }.map { it.id }.toSet(),
+                activity = buildActivity(userId, conversations, rentals, answered, seenAt)
+            )
+        } catch (e: Exception) {
+            throw fail("load your messages", e)
+        }
+    }
+
+    /** Marks a chat as read now (server time). Failures are only logged. */
+    suspend fun markConversationRead(conversationId: String) {
+        try {
+            postgrest.rpc("mark_conversation_read", buildJsonObject { put("p_conversation_id", conversationId) })
+        } catch (e: Exception) {
+            logError("mark chat read", e)
+        }
+    }
+
+    /** Records that I opened Inbox > Activity now (server time). Failures are only logged. */
+    suspend fun markActivitySeen() {
+        try {
+            postgrest.rpc("mark_activity_seen")
+        } catch (e: Exception) {
+            logError("mark activity seen", e)
         }
     }
 

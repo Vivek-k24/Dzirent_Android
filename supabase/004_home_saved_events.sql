@@ -122,6 +122,27 @@ create policy "manage own conversation reads" on public.conversation_reads for a
 
 create index if not exists conversation_reads_conversation_id_idx on public.conversation_reads (conversation_id);
 
+-- 6) MARK AS READ / SEEN with the server's clock, so a phone with a wrong clock can't hide
+-- or invent unread messages. Security invoker: the RLS policies above still apply.
+create or replace function public.mark_conversation_read(p_conversation_id uuid) returns void
+language sql security invoker set search_path = '' as $$
+  insert into public.conversation_reads (user_id, conversation_id, last_read_at)
+  values (auth.uid(), p_conversation_id, now())
+  on conflict (user_id, conversation_id) do update set last_read_at = now();
+$$;
+
+create or replace function public.mark_activity_seen() returns void
+language sql security invoker set search_path = '' as $$
+  insert into public.private_profiles (user_id, activity_seen_at)
+  values (auth.uid(), now())
+  on conflict (user_id) do update set activity_seen_at = now();
+$$;
+
+revoke all on function public.mark_conversation_read(uuid) from public, anon;
+grant execute on function public.mark_conversation_read(uuid) to authenticated;
+revoke all on function public.mark_activity_seen() from public, anon;
+grant execute on function public.mark_activity_seen() to authenticated;
+
 -- =====================================================================
 -- CHECK QUERIES (optional)
 -- =====================================================================
