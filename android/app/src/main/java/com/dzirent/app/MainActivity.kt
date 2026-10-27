@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,8 @@ import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.ui.*
 import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.ui.theme.DzirentTheme
+import com.dzirent.app.util.BrowseFilters
+import com.dzirent.app.util.DISTANCE_OPTIONS_KM
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -162,6 +165,11 @@ fun MainAppScaffold(
     val locationPrompts = remember { LocationPromptStore(context) }
     var inboxHasNews by remember { mutableStateOf(false) }
     val backStackEntry by navController.currentBackStackEntryAsState()
+    // Set from the sidebar and its filter sheet; Home and Search both use them.
+    var filters by remember { mutableStateOf(BrowseFilters()) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val onHome = backStackEntry?.destination?.route == TabHome.route
 
     // Ask once, right after login, if the profile has no location yet.
     LaunchedEffect(profile.id) {
@@ -206,171 +214,232 @@ fun MainAppScaffold(
 
     fun openChat(conversationId: String) = navController.navigate("chat/$conversationId")
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                listOf(TabHome, TabInbox).forEach { tab ->
-                    BottomTab(tab, selected = currentTab == tab.route, dot = tab == TabInbox && inboxHasNews) {
-                        openTab(tab.route)
-                    }
-                }
-                SearchTabButton(onClick = { openTab(TabSearch.route) })
-                listOf(TabCloset, TabBag).forEach { tab ->
-                    BottomTab(tab, selected = currentTab == tab.route, dot = false) { openTab(tab.route) }
-                }
-            }
+    fun closeDrawer() {
+        scope.launch { drawerState.close() }
+    }
+
+    /** Sidebar rows that leave Home close the drawer first, so Back returns to Home. */
+    fun openFromDrawer(route: String) {
+        closeDrawer()
+        navController.navigate(route)
+    }
+
+    BackHandler(enabled = drawerState.isOpen) { closeDrawer() }
+
+    if (showFilterSheet) {
+        FilterSheet(
+            current = filters,
+            onApply = { applied ->
+                filters = applied
+                showFilterSheet = false
+                closeDrawer()
+                if (!onHome) openTab(TabHome.route)
+            },
+            onDismiss = { showFilterSheet = false }
+        )
+    }
+
+    // Swipe to open only on Home, where the avatar opens the same drawer.
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = onHome || drawerState.isOpen,
+        drawerContent = {
+            SidebarContent(
+                profile = profile,
+                selectedCategory = filters.category,
+                onOpenProfile = { openFromDrawer("profile") },
+                onOpenSettings = { openFromDrawer("settings") },
+                onSelectCategory = { category ->
+                    filters = filters.withCategory(category)
+                    closeDrawer()
+                    if (!onHome) openTab(TabHome.route)
+                },
+                onOpenFilter = { showFilterSheet = true }
+            )
         }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = TabHome.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable("home") {
-                BrowseScreen(
-                    repository = repository,
-                    profile = profile,
-                    onSetLocation = { showLocationSetup = true },
-                    onOpenProfile = { navController.navigate("profile") },
-                    onListingClick = { listingId ->
-                        navController.navigate("detail/$listingId")
-                    }
-                )
-            }
-            composable("search") {
-                BrowseScreen(
-                    repository = repository,
-                    profile = profile,
-                    onSetLocation = { showLocationSetup = true },
-                    onOpenProfile = { navController.navigate("profile") },
-                    onListingClick = { listingId ->
-                        navController.navigate("detail/$listingId")
-                    }
-                )
-            }
-            composable("detail/{listingId}") { backStackEntry ->
-                val listingId = backStackEntry.arguments?.getString("listingId") ?: ""
-                ListingDetailScreen(
-                    repository = repository,
-                    listingId = listingId,
-                    currentUserId = profile.id,
-                    onBack = { navController.popBackStack() },
-                    onEdit = { id -> navController.navigate("edit/$id") },
-                    onMessageLender = { targetListingId, lenderId ->
-                        // Create the conversation (or reuse the existing one), then open it.
-                        scope.launch {
-                            try {
-                                val conversation = repository.getOrCreateConversation(
-                                    listingId = targetListingId,
-                                    renterId = profile.id,
-                                    lenderId = lenderId
-                                )
-                                openChat(conversation.id)
-                            } catch (e: Exception) {
-                                Toast.makeText(
-                                    context,
-                                    e.userMessage("Couldn't open the chat. Please try again."),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
+    ) {
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    listOf(TabHome, TabInbox).forEach { tab ->
+                        BottomTab(tab, selected = currentTab == tab.route, dot = tab == TabInbox && inboxHasNews) {
+                            openTab(tab.route)
                         }
                     }
-                )
-            }
-            composable("inbox") {
-                InboxScreen(
-                    repository = repository,
-                    currentUserId = profile.id,
-                    onConversationClick = { conversationId -> openChat(conversationId) },
-                    onNewsChanged = { inboxHasNews = it }
-                )
-            }
-            composable("chat/{conversationId}") { backStackEntry ->
-                val conversationId = backStackEntry.arguments?.getString("conversationId") ?: ""
-                ChatScreen(
-                    repository = repository,
-                    conversationId = conversationId,
-                    currentUserId = profile.id,
-                    onBack = { navController.popBackStack() },
-                    onOpenListing = { id -> navController.navigate("detail/$id") }
-                )
-            }
-            composable("list") {
-                ListingEditorScreen(
-                    repository = repository,
-                    profile = profile,
-                    listingId = null,
-                    onSetLocation = { showLocationSetup = true },
-                    onBack = { navController.popBackStack() },
-                    onSaved = { navController.popBackStack() }
-                )
-            }
-            composable("edit/{listingId}") { backStackEntry ->
-                val listingId = backStackEntry.arguments?.getString("listingId") ?: ""
-                ListingEditorScreen(
-                    repository = repository,
-                    profile = profile,
-                    listingId = listingId,
-                    onSetLocation = { showLocationSetup = true },
-                    onBack = { navController.popBackStack() },
-                    onSaved = { navController.popBackStack() }
-                )
-            }
-            composable("closet") {
-                // Lenders see their listings (and "List an item"); renters see their rentals.
-                if (Roles.canLend(profile.role)) {
-                    MyClosetScreen(
-                        repository = repository,
-                        currentUserId = profile.id,
-                        showRentalsTab = profile.role == Roles.BOTH,
-                        onListItem = { navController.navigate("list") },
-                        onOpenListing = { id -> navController.navigate("detail/$id") },
-                        onEditListing = { id -> navController.navigate("edit/$id") },
-                        onOpenChat = { conversationId -> openChat(conversationId) }
-                    )
-                } else {
-                    MyRentalsScreen(
-                        repository = repository,
-                        currentUserId = profile.id,
-                        onOpenChat = { conversationId -> openChat(conversationId) }
-                    )
+                    SearchTabButton(onClick = { openTab(TabSearch.route) })
+                    listOf(TabCloset, TabBag).forEach { tab ->
+                        BottomTab(tab, selected = currentTab == tab.route, dot = false) { openTab(tab.route) }
+                    }
                 }
             }
-            composable("bag") {
-                EmptyView(
-                    title = "Your Bag is empty",
-                    description = "Pieces you save will show up here.",
-                    icon = Icons.Default.BookmarkBorder
-                )
-            }
-            composable("profile") {
-                ProfileScreen(
-                    repository = repository,
-                    profile = profile,
-                    onProfileUpdated = { updated -> profile = updated },
-                    onSetLocation = { showLocationSetup = true },
-                    onOpenMeasurements = { navController.navigate("measurements") },
-                    onOpenPolicy = { navController.navigate("policy") },
-                    onOpenBlockedUsers = { navController.navigate("blocked") },
-                    onSignOut = onSignOut
-                )
-            }
-            composable("measurements") {
-                BodyMeasurementsScreen(
-                    repository = repository,
-                    userId = profile.id,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable("blocked") {
-                BlockedUsersScreen(
-                    repository = repository,
-                    currentUserId = profile.id,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable("policy") {
-                HowDzirentWorksScreen(onBack = { navController.popBackStack() })
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = TabHome.route,
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                composable("home") {
+                    BrowseScreen(
+                        repository = repository,
+                        profile = profile,
+                        filters = filters,
+                        onSetLocation = { showLocationSetup = true },
+                        onOpenSidebar = { scope.launch { drawerState.open() } },
+                        onClearFilters = { filters = BrowseFilters(radiusKm = DISTANCE_OPTIONS_KM.last()) },
+                        onListingClick = { listingId ->
+                            navController.navigate("detail/$listingId")
+                        }
+                    )
+                }
+                composable("search") {
+                    BrowseScreen(
+                        repository = repository,
+                        profile = profile,
+                        filters = filters,
+                        onSetLocation = { showLocationSetup = true },
+                        onOpenSidebar = { scope.launch { drawerState.open() } },
+                        onClearFilters = { filters = BrowseFilters(radiusKm = DISTANCE_OPTIONS_KM.last()) },
+                        onListingClick = { listingId ->
+                            navController.navigate("detail/$listingId")
+                        }
+                    )
+                }
+                composable("detail/{listingId}") { backStackEntry ->
+                    val listingId = backStackEntry.arguments?.getString("listingId") ?: ""
+                    ListingDetailScreen(
+                        repository = repository,
+                        listingId = listingId,
+                        currentUserId = profile.id,
+                        onBack = { navController.popBackStack() },
+                        onEdit = { id -> navController.navigate("edit/$id") },
+                        onMessageLender = { targetListingId, lenderId ->
+                            // Create the conversation (or reuse the existing one), then open it.
+                            scope.launch {
+                                try {
+                                    val conversation = repository.getOrCreateConversation(
+                                        listingId = targetListingId,
+                                        renterId = profile.id,
+                                        lenderId = lenderId
+                                    )
+                                    openChat(conversation.id)
+                                } catch (e: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        e.userMessage("Couldn't open the chat. Please try again."),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        }
+                    )
+                }
+                composable("inbox") {
+                    InboxScreen(
+                        repository = repository,
+                        currentUserId = profile.id,
+                        onConversationClick = { conversationId -> openChat(conversationId) },
+                        onNewsChanged = { inboxHasNews = it }
+                    )
+                }
+                composable("chat/{conversationId}") { backStackEntry ->
+                    val conversationId = backStackEntry.arguments?.getString("conversationId") ?: ""
+                    ChatScreen(
+                        repository = repository,
+                        conversationId = conversationId,
+                        currentUserId = profile.id,
+                        onBack = { navController.popBackStack() },
+                        onOpenListing = { id -> navController.navigate("detail/$id") }
+                    )
+                }
+                composable("list") {
+                    ListingEditorScreen(
+                        repository = repository,
+                        profile = profile,
+                        listingId = null,
+                        onSetLocation = { showLocationSetup = true },
+                        onBack = { navController.popBackStack() },
+                        onSaved = { navController.popBackStack() }
+                    )
+                }
+                composable("edit/{listingId}") { backStackEntry ->
+                    val listingId = backStackEntry.arguments?.getString("listingId") ?: ""
+                    ListingEditorScreen(
+                        repository = repository,
+                        profile = profile,
+                        listingId = listingId,
+                        onSetLocation = { showLocationSetup = true },
+                        onBack = { navController.popBackStack() },
+                        onSaved = { navController.popBackStack() }
+                    )
+                }
+                composable("closet") {
+                    // Lenders see their listings (and "List an item"); renters see their rentals.
+                    if (Roles.canLend(profile.role)) {
+                        MyClosetScreen(
+                            repository = repository,
+                            currentUserId = profile.id,
+                            showRentalsTab = profile.role == Roles.BOTH,
+                            onListItem = { navController.navigate("list") },
+                            onOpenListing = { id -> navController.navigate("detail/$id") },
+                            onEditListing = { id -> navController.navigate("edit/$id") },
+                            onOpenChat = { conversationId -> openChat(conversationId) }
+                        )
+                    } else {
+                        MyRentalsScreen(
+                            repository = repository,
+                            currentUserId = profile.id,
+                            onOpenChat = { conversationId -> openChat(conversationId) }
+                        )
+                    }
+                }
+                composable("bag") {
+                    EmptyView(
+                        title = "Your Bag is empty",
+                        description = "Pieces you save will show up here.",
+                        icon = Icons.Default.BookmarkBorder
+                    )
+                }
+                composable("profile") {
+                    ProfileScreen(
+                        repository = repository,
+                        profile = profile,
+                        onProfileUpdated = { updated -> profile = updated },
+                        onBack = { navController.popBackStack() },
+                        onOpenMeasurements = { navController.navigate("measurements") }
+                    )
+                }
+                composable("settings") {
+                    SettingsScreen(
+                        repository = repository,
+                        profile = profile,
+                        onBack = { navController.popBackStack() },
+                        onSetLocation = { showLocationSetup = true },
+                        onOpenBlockedUsers = { navController.navigate("blocked") },
+                        onOpenCommunityPolicy = { navController.navigate("community") },
+                        onOpenHowItWorks = { navController.navigate("policy") },
+                        onSignOut = onSignOut
+                    )
+                }
+                composable("measurements") {
+                    BodyMeasurementsScreen(
+                        repository = repository,
+                        userId = profile.id,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable("blocked") {
+                    BlockedUsersScreen(
+                        repository = repository,
+                        currentUserId = profile.id,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable("policy") {
+                    HowDzirentWorksScreen(onBack = { navController.popBackStack() })
+                }
+                composable("community") {
+                    CommunityPolicyScreen(onBack = { navController.popBackStack() })
+                }
             }
         }
     }

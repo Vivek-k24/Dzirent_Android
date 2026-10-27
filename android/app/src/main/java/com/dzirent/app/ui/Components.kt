@@ -11,7 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.repository.DzirentException
 import com.dzirent.app.ui.theme.DzirentAccent
@@ -22,6 +24,35 @@ import com.dzirent.app.ui.theme.DzirentAccent
  */
 fun Throwable.userMessage(fallback: String = "Something went wrong. Please try again."): String =
     if (this is DzirentException) message ?: fallback else fallback
+
+/** "AL" for "Ana Lopez", "A" for "Ana", "?" for no name. */
+fun initialsOf(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return when {
+        parts.isEmpty() -> "?"
+        parts.size == 1 -> parts[0].take(1).uppercase()
+        else -> (parts.first().take(1) + parts.last().take(1)).uppercase()
+    }
+}
+
+/** Round avatar with the person's initials (profiles have no photo yet). */
+@Composable
+fun Avatar(name: String, size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Text(
+            text = initialsOf(name),
+            style = if (size >= 56.dp) MaterialTheme.typography.titleLarge else MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
 
 /** Small accent dot: unread messages or new activity. */
 @Composable

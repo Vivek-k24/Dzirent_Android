@@ -26,6 +26,14 @@ object DzirentPolicy {
             "before you meet. Meet in a public place and never send money before you see the item. " +
             "For valuable pieces, we recommend lenders ask for a refundable deposit."
 
+    const val COMMUNITY_TITLE = "Community policy"
+
+    // Placeholder wording: the owner will confirm the final rules.
+    const val COMMUNITY_RULES =
+        "Be honest and respectful. List only pieces you own, show them as they are, and keep " +
+            "chats friendly. Harassment, scams and fake listings aren't allowed. Use Report on a " +
+            "listing, a person or a message, and Block to stop someone contacting you."
+
     const val PROHIBITED_TITLE = "Not allowed on Dzirent"
 
     const val PROHIBITED_ITEMS =
@@ -73,12 +81,34 @@ private fun PolicyBody() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HowDzirentWorksScreen(onBack: () -> Unit) {
+    PolicyScreen(title = DzirentPolicy.TITLE, onBack = onBack) {
+        Text(text = DzirentPolicy.FULL_TEXT, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+fun CommunityPolicyScreen(onBack: () -> Unit) {
+    PolicyScreen(title = DzirentPolicy.COMMUNITY_TITLE, onBack = onBack) {
+        Text(text = DzirentPolicy.COMMUNITY_RULES, style = MaterialTheme.typography.bodyLarge)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = DzirentPolicy.PROHIBITED_TITLE,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(text = DzirentPolicy.PROHIBITED_ITEMS, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PolicyScreen(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(DzirentPolicy.TITLE) },
+            title = { Text(title) },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -89,17 +119,9 @@ fun HowDzirentWorksScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Shield,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            PolicyBody()
-        }
+                .padding(24.dp),
+            content = content
+        )
     }
 }
 

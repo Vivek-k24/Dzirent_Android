@@ -35,8 +35,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
-import com.dzirent.app.util.DEFAULT_DISTANCE_KM
+import com.dzirent.app.util.BrowseFilters
 import com.dzirent.app.util.DISTANCE_OPTIONS_KM
+import com.dzirent.app.util.matchesFilters
+import com.dzirent.app.util.matchesQuery
 import com.dzirent.app.util.formatDateRange
 import com.dzirent.app.util.formatDistance
 import com.dzirent.app.util.parseDateRange
@@ -55,13 +57,14 @@ sealed class UiState<out T> {
 fun BrowseScreen(
     repository: DzirentRepository,
     profile: Profile,
+    filters: BrowseFilters,
     onSetLocation: () -> Unit,
-    onOpenProfile: () -> Unit,
+    onOpenSidebar: () -> Unit,
+    onClearFilters: () -> Unit,
     onListingClick: (String) -> Unit
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
-    var radiusKm by rememberSaveable { mutableIntStateOf(DEFAULT_DISTANCE_KM) }
+    val radiusKm = filters.radiusKm
     var uiState by remember { mutableStateOf<UiState<List<Listing>>>(UiState.Loading) }
     val scope = rememberCoroutineScope()
     val lat = profile.approxLat
@@ -76,7 +79,7 @@ fun BrowseScreen(
                     lat = lat,
                     lng = lng,
                     radiusKm = radiusKm.toDouble(),
-                    category = selectedCategory
+                    category = filters.category
                 )
                 uiState = UiState.Success(listings)
             } catch (e: Exception) {
@@ -85,7 +88,7 @@ fun BrowseScreen(
         }
     }
 
-    LaunchedEffect(selectedCategory, radiusKm, lat, lng) {
+    LaunchedEffect(filters.category, radiusKm, lat, lng) {
         loadListings()
     }
 
@@ -101,8 +104,8 @@ fun BrowseScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        IconButton(onClick = onOpenProfile, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
-            Icon(Icons.Default.AccountCircle, contentDescription = "Profile")
+        IconButton(onClick = onOpenSidebar, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
+            Avatar(name = profile.displayName, size = 32.dp)
         }
         OutlinedTextField(
             value = searchQuery,
@@ -122,75 +125,15 @@ fun BrowseScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
 
-        // Both chip rows scroll sideways; the end padding lets the last chip scroll fully into view.
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = selectedCategory == null,
-                    onClick = { selectedCategory = null },
-                    label = { Text("All", maxLines = 1) }
-                )
-            }
-            items(Categories.ALL) { category ->
-                FilterChip(
-                    selected = selectedCategory == category,
-                    onClick = {
-                        selectedCategory = if (selectedCategory == category) null else category
-                    },
-                    label = { Text(category, maxLines = 1) }
-                )
-            }
-        }
-
-        // The city gets its own line so a long name can't push the distance chips off-screen.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.NearMe,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = "Distance from ${profile.city.ifBlank { "you" }}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(DISTANCE_OPTIONS_KM) { km ->
-                FilterChip(
-                    selected = radiusKm == km,
-                    onClick = { radiusKm = km },
-                    label = { Text("$km km", maxLines = 1) }
-                )
-            }
-        }
-
         when (val state = uiState) {
             is UiState.Loading -> LoadingView(message = "Searching nearby listings...")
             is UiState.Error -> ErrorView(message = state.message, onRetry = { loadListings() })
             is UiState.Success -> {
-                val filtered = state.data.filter {
-                    if (searchQuery.isBlank()) true
-                    else it.title.contains(searchQuery, ignoreCase = true) ||
-                            it.description.contains(searchQuery, ignoreCase = true)
-                }
+                val filtered = state.data.filter { it.matchesFilters(filters) && it.matchesQuery(searchQuery) }
 
                 if (filtered.isEmpty()) {
                     val widest = DISTANCE_OPTIONS_KM.last()
-                    val filtersOn = searchQuery.isNotBlank() || selectedCategory != null
+                    val filtersOn = searchQuery.isNotBlank() || filters != BrowseFilters(radiusKm = radiusKm)
                     EmptyView(
                         title = "No Listings Found",
                         description = when {
@@ -202,8 +145,7 @@ fun BrowseScreen(
                         onAction = if (filtersOn || radiusKm < widest) {
                             {
                                 searchQuery = ""
-                                selectedCategory = null
-                                radiusKm = widest
+                                onClearFilters()
                             }
                         } else {
                             { loadListings() }
@@ -1047,11 +989,8 @@ fun ProfileScreen(
     repository: DzirentRepository,
     profile: Profile,
     onProfileUpdated: (Profile) -> Unit,
-    onSetLocation: () -> Unit,
-    onOpenMeasurements: () -> Unit,
-    onOpenPolicy: () -> Unit,
-    onOpenBlockedUsers: () -> Unit,
-    onSignOut: () -> Unit
+    onBack: () -> Unit,
+    onOpenMeasurements: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(true) }
@@ -1135,133 +1074,87 @@ fun ProfileScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        if (isRefreshing) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
-        refreshError?.let { message ->
-            PolicyNotice(text = message, modifier = Modifier.padding(bottom = 8.dp))
-            TextButton(onClick = { refresh() }) { Text("Retry") }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Icon(
-            imageVector = Icons.Default.AccountCircle,
-            contentDescription = null,
-            modifier = Modifier.size(80.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = profile.displayName.ifBlank { "Your profile" },
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = profile.city.ifBlank { "No city set" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.outline
-        )
-        Text(
-            text = "Role: ${roleLabel(profile.role)}",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.secondary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = "I want to:",
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        val roleOptions = listOf(Roles.RENTER to "Rent", Roles.LENDER to "Lend", Roles.BOTH to "Both")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            roleOptions.forEachIndexed { index, (role, label) ->
-                SegmentedButton(
-                    selected = profile.role == role,
-                    onClick = { onRoleSelected(role) },
-                    enabled = !isSaving,
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = roleOptions.size)
-                ) {
-                    Text(label)
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("Profile") },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }
-        }
-        if (isSaving) {
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (isRefreshing) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            refreshError?.let { message ->
+                PolicyNotice(text = message, modifier = Modifier.padding(bottom = 8.dp))
+                TextButton(onClick = { refresh() }) { Text("Retry") }
+            }
             Spacer(modifier = Modifier.height(8.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
-        actionError?.let { message ->
+            Avatar(name = profile.displayName, size = 80.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = profile.displayName.ifBlank { "Your profile" },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = profile.city.ifBlank { "No city set" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Text(
+                text = "Role: ${roleLabel(profile.role)}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.secondary
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "I want to:",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-        HorizontalDivider()
-        ListItem(
-            headlineContent = { Text("My measurements") },
-            supportingContent = { Text("For comparing with each piece. Only you can see them.") },
-            leadingContent = { Icon(Icons.Default.Straighten, contentDescription = null) },
-            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            modifier = Modifier.clickable { onOpenMeasurements() }
-        )
-        HorizontalDivider()
-        ListItem(
-            headlineContent = { Text("Update my location") },
-            supportingContent = {
-                Text(if (profile.hasLocation) "Near ${profile.city.ifBlank { "your area" }} (about 1 km)" else "Not set yet")
-            },
-            leadingContent = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            modifier = Modifier.clickable { onSetLocation() }
-        )
-        HorizontalDivider()
-        ListItem(
-            headlineContent = { Text(DzirentPolicy.TITLE) },
-            leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
-            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            modifier = Modifier.clickable { onOpenPolicy() }
-        )
-        HorizontalDivider()
-        ListItem(
-            headlineContent = { Text("Blocked users") },
-            leadingContent = { Icon(Icons.Default.Block, contentDescription = null) },
-            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            modifier = Modifier.clickable { onOpenBlockedUsers() }
-        )
-        HorizontalDivider()
-
-        Spacer(modifier = Modifier.height(32.dp))
-        Button(
-            onClick = {
-                scope.launch {
-                    isSaving = true
-                    actionError = null
-                    try {
-                        repository.signOut()
-                        onSignOut()
-                    } catch (e: Exception) {
-                        isSaving = false
-                        actionError = e.userMessage("Couldn't sign out. Please try again.")
+            val roleOptions = listOf(Roles.RENTER to "Rent", Roles.LENDER to "Lend", Roles.BOTH to "Both")
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                roleOptions.forEachIndexed { index, (role, label) ->
+                    SegmentedButton(
+                        selected = profile.role == role,
+                        onClick = { onRoleSelected(role) },
+                        enabled = !isSaving,
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = roleOptions.size)
+                    ) {
+                        Text(label)
                     }
                 }
-            },
-            enabled = !isSaving,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer
-            ),
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Sign Out")
+            }
+            if (isSaving) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            actionError?.let { message ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("My measurements") },
+                supportingContent = { Text("For comparing with each piece. Only you can see them.") },
+                leadingContent = { Icon(Icons.Default.Straighten, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                modifier = Modifier.clickable { onOpenMeasurements() }
+            )
+            HorizontalDivider()
         }
     }
 }
