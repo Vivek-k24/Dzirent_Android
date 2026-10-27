@@ -29,11 +29,15 @@ Supabase SDK integration.
    under `supabase/`, **Row Level Security** policies, relevant PostgREST RPCs,
    the `listing-photos` Storage bucket and access policies, and Realtime for
    messages. Commiting SQL files does **not** deploy them to Supabase.
-5. In GitHub **Actions → Build and publish signed Android release APK → Run
-   workflow**, select the `android03` branch.
+5. In GitHub **Actions → Build and publish signed Android release (APK + AAB) →
+   Run workflow**, select the `android03` branch.
 6. When the workflow is green, download the release APK from **Releases**,
    install it, and test sign-up/login, listing browse/create, photo upload, and
    sending and receiving messages on actual devices.
+
+The same release also has a signed `.aab` for Google Play. To deliver builds
+through the Play internal testing track, see
+[docs/PLAY_INTERNAL_TESTING.md](docs/PLAY_INTERNAL_TESTING.md).
 
 ## Permanent signing (required for future updates)
 
