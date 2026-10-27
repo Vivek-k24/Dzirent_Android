@@ -693,6 +693,37 @@ class DzirentRepository {
     }
 
     /**
+     * Bag > Pieces, newest first. The listing is null when it was paused or deleted
+     * (RLS hides other people's paused listings).
+     */
+    suspend fun getSavedListings(userId: String): List<SavedListing> {
+        return try {
+            postgrest.from("saved_listings").select(Columns.raw("*, listing:listings(*, photos:listing_photos(*))")) {
+                filter { eq("user_id", userId) }
+                order("created_at", Order.DESCENDING)
+            }.decodeList<SavedListing>().map { saved -> saved.copy(listing = saved.listing?.sorted()) }
+        } catch (e: Exception) {
+            throw fail("load your Bag", e)
+        }
+    }
+
+    /** Bag > Studios, newest first, with each lender's public studio details. */
+    suspend fun getSavedStudios(userId: String): List<SavedStudio> {
+        return try {
+            postgrest.from("saved_studios").select(
+                Columns.raw(
+                    "*, lender:profiles!saved_studios_lender_id_fkey(id, display_name, city, studio_name, studio_handle)"
+                )
+            ) {
+                filter { eq("user_id", userId) }
+                order("created_at", Order.DESCENDING)
+            }.decodeList<SavedStudio>()
+        } catch (e: Exception) {
+            throw fail("load your Bag", e)
+        }
+    }
+
+    /**
      * Adds a row to listing_events (data for future personalization). Never fails the
      * caller: a lost event only gets logged.
      */

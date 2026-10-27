@@ -422,10 +422,16 @@ fun MainAppScaffold(
                     }
                 }
                 composable("bag") {
-                    EmptyView(
-                        title = "Your Bag is empty",
-                        description = "Pieces you save will show up here.",
-                        icon = Icons.Default.BookmarkBorder
+                    BagScreen(
+                        repository = repository,
+                        currentUserId = profile.id,
+                        onOpenListing = { id -> navController.navigate("detail/$id") },
+                        onOpenStudio = { lenderId -> navController.navigate("studio/$lenderId") },
+                        onMessageAboutDates = { piece ->
+                            startChat(piece.id, piece.lenderId, datesQuestion(piece.title, session.dates))
+                        },
+                        onBrowse = { openTab(TabHome.route) },
+                        onStudiosChanged = { session.invalidate() }
                     )
                 }
                 composable("profile") {
