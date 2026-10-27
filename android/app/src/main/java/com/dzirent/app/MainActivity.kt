@@ -522,7 +522,7 @@ private fun RowScope.SearchTabButton(onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .weight(1f)
-            .fillMaxHeight()
+            .align(Alignment.CenterVertically)
     ) {
         Surface(
             onClick = onClick,
