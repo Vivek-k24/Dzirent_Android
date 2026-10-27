@@ -1,15 +1,17 @@
 # Google Play internal testing for Dzirent Android
 
 Every run of the **Build and publish signed Android release (APK + AAB)**
-workflow builds a signed app bundle (`Dzirent-android03-release.aab`). It
-attaches the bundle to the GitHub Release next to the APK. Once
-`PLAY_SERVICE_ACCOUNT_JSON` is set, the workflow also uploads the bundle to the
-Play **Internal testing** track. Without that secret, the upload step is
-skipped and the build still passes.
+workflow builds a signed app bundle named after its branch, for example
+`Dzirent-android04-release.aab`. It attaches the bundle to the GitHub Release
+next to the APK. Once `PLAY_SERVICE_ACCOUNT_JSON` is set, the workflow also
+uploads the bundle to the Play **Internal testing** track. Without that secret,
+the upload step is skipped and the build still passes.
 
-The workflow runs on pushes to `android03` that touch `android/**` or the
-workflow file, and from **Actions → Run workflow**. Each build's `versionCode`
-is the workflow run number, so each upload is higher than the one before.
+The workflow runs on pushes to any branch whose name starts with `android`
+(`android03`, `android04`, …) that touch `android/**` or the workflow file. It
+also runs from **Actions → Run workflow**. Builds from every such branch go to
+the same internal track. Each build's `versionCode` is the workflow run number,
+so each upload is higher than the one before. Builds run one at a time.
 
 Do the parts in this order. Play's API can only upload to an app that already
 has a first build uploaded by hand, and you can only grant a service account
@@ -37,8 +39,8 @@ Before you start, you need:
 ### 1a. Get the bundle
 
 1. On GitHub, open **Vivek-k24/Dzirent_Android → Releases**.
-2. Open the newest `android03-build-N` release.
-3. Under **Assets**, click **Dzirent-android03-release.aab** to download it.
+2. Open the newest `<branch>-build-N` release, for example `android04-build-N`.
+3. Under **Assets**, click **Dzirent-<branch>-release.aab** to download it.
 
 ### 1b. Create the app
 
@@ -84,7 +86,7 @@ Before you start, you need:
 
    Click **Next** or **Save** (the wording depends on the option).
 3. Under **App bundles**, click **Upload**. Choose
-   `Dzirent-android03-release.aab` from step 1a.
+   the `.aab` from step 1a.
 4. Wait for the upload to finish. The bundle row shows the version code
    (the build number N) and version name `1.0.0`.
 5. **Release name** is filled in automatically, for example `N (1.0.0)`.
@@ -214,7 +216,7 @@ fail with "The caller does not have permission".
 
 ## 5. Check the first automatic upload
 
-1. Start a build: push a change under `android/` to `android03`, or go to
+1. Start a build: push a change under `android/` to an `android*` branch, or go to
    **Actions → Build and publish signed Android release (APK + AAB) → Run
    workflow**.
    - That build's number must be higher than the one you uploaded by hand.
