@@ -22,6 +22,11 @@ import com.dzirent.app.util.cmToBodyInput
 import com.dzirent.app.util.isValidBodyCm
 import kotlinx.coroutines.launch
 
+private const val MEASUREMENTS_PRIVACY_NOTE =
+    "We only use your measurements to make your search easier and show pieces likely to fit " +
+        "you. They're private, so no one else can see them. If you're a lender, your listings " +
+        "only show the garment's measurements, never your body measurements."
+
 private const val HOW_TO_MEASURE =
     "Use a soft tape measure over light clothing. Stand straight, breathe normally, and keep " +
         "the tape level and snug but not tight. Ask a friend for shoulder and inseam."
@@ -156,7 +161,7 @@ private fun MeasurementsForm(
         }
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Optional. Compare them with the measurements lenders list on each piece. Only you can see them.",
+            text = MEASUREMENTS_PRIVACY_NOTE,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
