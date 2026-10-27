@@ -2,16 +2,17 @@
 
 Every run of the **Build and publish signed Android release (APK + AAB)**
 workflow builds a signed app bundle named after its branch, for example
-`Dzirent-android04-release.aab`. It attaches the bundle to the GitHub Release
+`Dzirent-main-release.aab`. It attaches the bundle to the GitHub Release
 next to the APK. Once `PLAY_SERVICE_ACCOUNT_JSON` is set, the workflow also
 uploads the bundle to the Play **Internal testing** track. Without that secret,
 the upload step is skipped and the build still passes.
 
-The workflow runs on pushes to any branch whose name starts with `android`
-(`android03`, `android04`, …) that touch `android/**` or the workflow file. It
-also runs from **Actions → Run workflow**. Builds from every such branch go to
-the same internal track. Each build's `versionCode` is the workflow run number,
-so each upload is higher than the one before. Builds run one at a time.
+**How a change reaches Play:** work on a branch, open a pull request into
+`main`, merge it, and the merge builds and uploads to Play. Pushing to other
+branches builds nothing. The workflow runs on pushes to `main` that touch
+`android/**` or the workflow file, and from **Actions → Run workflow** (by
+hand, on the branch you pick). Each build's `versionCode` is the workflow run
+number, so each upload is higher than the one before. Builds run one at a time.
 
 Do the parts in this order. Play's API can only upload to an app that already
 has a first build uploaded by hand, and you can only grant a service account
@@ -39,7 +40,8 @@ Before you start, you need:
 ### 1a. Get the bundle
 
 1. On GitHub, open **Vivek-k24/Dzirent_Android → Releases**.
-2. Open the newest `<branch>-build-N` release, for example `android04-build-N`.
+2. Open the newest `main-build-N` release (or `<branch>-build-N` for a run you
+   started by hand on another branch).
 3. Under **Assets**, click **Dzirent-<branch>-release.aab** to download it.
 
 ### 1b. Create the app
@@ -216,9 +218,9 @@ fail with "The caller does not have permission".
 
 ## 5. Check the first automatic upload
 
-1. Start a build: push a change under `android/` to an `android*` branch, or go to
-   **Actions → Build and publish signed Android release (APK + AAB) → Run
-   workflow**.
+1. Start a build: merge a pull request into `main` that changes something under
+   `android/`, or go to **Actions → Build and publish signed Android release
+   (APK + AAB) → Run workflow**.
    - That build's number must be higher than the one you uploaded by hand.
      Any new run's number is.
    - Don't re-run an old run: a re-run keeps its number, and Play rejects a

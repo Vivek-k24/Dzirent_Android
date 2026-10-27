@@ -29,10 +29,12 @@ Supabase SDK integration.
    under `supabase/`, **Row Level Security** policies, relevant PostgREST RPCs,
    the `listing-photos` Storage bucket and access policies, and Realtime for
    messages. Commiting SQL files does **not** deploy them to Supabase.
-5. In GitHub **Actions → Build and publish signed Android release (APK + AAB) →
-   Run workflow**, select the branch to build (for example `android04`). Pushes
-   to any `android*` branch also start it. The APK, artifact and release are
-   named after the branch, for example `Dzirent-android04-release.apk`.
+5. Work on a branch, open a pull request into `main`, merge it, and the merge
+   builds and uploads to Play. Only pushes to `main` that touch `android/**` or
+   the workflow start a build; other branches build nothing. To build by hand,
+   use **Actions → Build and publish signed Android release (APK + AAB) → Run
+   workflow**. The APK, artifact and release are named after the branch, for
+   example `Dzirent-main-release.apk`.
 6. When the workflow is green, download the release APK from **Releases**,
    install it, and test sign-up/login, listing browse/create, photo upload, and
    sending and receiving messages on actual devices.
