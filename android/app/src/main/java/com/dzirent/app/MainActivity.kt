@@ -16,7 +16,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +33,7 @@ import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.ui.*
 import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.ui.theme.DzirentTheme
+import com.dzirent.app.ui.theme.OnDzirentAccent
 import com.dzirent.app.util.HomeRow
 import com.dzirent.app.util.datesQuestion
 import kotlinx.coroutines.delay
@@ -528,7 +528,7 @@ private fun RowScope.SearchTabButton(onClick: () -> Unit) {
             onClick = onClick,
             shape = CircleShape,
             color = DzirentAccent,
-            contentColor = Color.White,
+            contentColor = OnDzirentAccent,
             shadowElevation = 6.dp,
             modifier = Modifier.size(56.dp)
         ) {

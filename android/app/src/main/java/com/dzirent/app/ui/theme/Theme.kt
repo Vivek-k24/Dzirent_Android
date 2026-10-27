@@ -5,19 +5,39 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 // Design: black, white and greys, plus ONE accent.
+/** The accent in light mode (placeholder, owner to confirm). */
+private val AccentOnLight = Color(0xFF8E1538)
+
 /**
- * The one accent (placeholder, owner to confirm). Used only for: the active tab underline,
- * the center Search button, notification dots, the selected category and the fit row.
+ * The same hue, lighter, for dark mode: #8E1538 is only 2.1:1 on the dark background.
+ * This is 6.0:1 on the background and 5.6:1 on the drawer, so accent text passes 4.5:1.
  */
-val DzirentAccent = Color(0xFF8E1538)
+private val AccentOnDark = Color(0xFFE8638A)
 
 private val Ink = Color(0xFF111111)
+
+private val LocalDarkTheme = staticCompositionLocalOf { false }
+
+/**
+ * The one accent for the current theme. Used only for: the active tab underline, the
+ * center Search button, notification dots, the selected category and the fit row.
+ */
+val DzirentAccent: Color
+    @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) AccentOnDark else AccentOnLight
+
+/** Icons and text drawn on the accent: white on the dark red, near-black on the light pink. */
+val OnDzirentAccent: Color
+    @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Ink else Color.White
+
 private val Grey50 = Color(0xFFFAFAFA)
 private val Grey100 = Color(0xFFF2F2F2)
 private val Grey200 = Color(0xFFE6E6E6)
@@ -113,9 +133,11 @@ fun DzirentTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography(),
-        content = content
-    )
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography(),
+            content = content
+        )
+    }
 }
