@@ -31,8 +31,6 @@ import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.ui.*
 import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.ui.theme.DzirentTheme
-import com.dzirent.app.util.BrowseFilters
-import com.dzirent.app.util.DISTANCE_OPTIONS_KM
 import com.dzirent.app.util.HomeRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -301,16 +299,11 @@ fun MainAppScaffold(
                     )
                 }
                 composable("search") {
-                    BrowseScreen(
-                        repository = repository,
+                    SearchScreen(
+                        session = session,
                         profile = profile,
-                        filters = session.filters,
                         onSetLocation = { showLocationSetup = true },
-                        onOpenSidebar = { scope.launch { drawerState.open() } },
-                        onClearFilters = { session.filters = BrowseFilters(radiusKm = DISTANCE_OPTIONS_KM.last()) },
-                        onListingClick = { listingId ->
-                            navController.navigate("detail/$listingId")
-                        }
+                        onOpenListing = { listingId -> navController.navigate("detail/$listingId") }
                     )
                 }
                 composable("detail/{listingId}") { backStackEntry ->

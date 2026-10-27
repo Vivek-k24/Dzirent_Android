@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,10 +36,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
-import com.dzirent.app.util.BrowseFilters
-import com.dzirent.app.util.DISTANCE_OPTIONS_KM
-import com.dzirent.app.util.matchesFilters
-import com.dzirent.app.util.matchesQuery
+import com.dzirent.app.util.ClosetSort
+import com.dzirent.app.util.sortCloset
 import com.dzirent.app.util.formatDateRange
 import com.dzirent.app.util.formatDistance
 import com.dzirent.app.util.formatPrice
@@ -50,125 +49,6 @@ sealed class UiState<out T> {
     object Loading : UiState<Nothing>()
     data class Error(val message: String) : UiState<Nothing>()
     data class Success<T>(val data: T) : UiState<T>()
-}
-
-// --- BROWSE SCREEN ---
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun BrowseScreen(
-    repository: DzirentRepository,
-    profile: Profile,
-    filters: BrowseFilters,
-    onSetLocation: () -> Unit,
-    onOpenSidebar: () -> Unit,
-    onClearFilters: () -> Unit,
-    onListingClick: (String) -> Unit
-) {
-    var searchQuery by rememberSaveable { mutableStateOf("") }
-    val radiusKm = filters.radiusKm
-    var uiState by remember { mutableStateOf<UiState<List<Listing>>>(UiState.Loading) }
-    val scope = rememberCoroutineScope()
-    val lat = profile.approxLat
-    val lng = profile.approxLng
-
-    fun loadListings() {
-        if (lat == null || lng == null) return
-        scope.launch {
-            uiState = UiState.Loading
-            try {
-                val listings = repository.getNearbyListings(
-                    lat = lat,
-                    lng = lng,
-                    radiusKm = radiusKm.toDouble(),
-                    category = filters.category
-                )
-                uiState = UiState.Success(listings)
-            } catch (e: Exception) {
-                uiState = UiState.Error(e.userMessage("Failed to load listings."))
-            }
-        }
-    }
-
-    LaunchedEffect(filters.category, radiusKm, lat, lng) {
-        loadListings()
-    }
-
-    if (lat == null || lng == null) {
-        EmptyView(
-            title = "Set your location",
-            description = "Dzirent shows clothes from closets near you. Set your approximate location to start browsing.",
-            icon = Icons.Default.LocationOff,
-            onAction = onSetLocation,
-            actionLabel = "Set my location"
-        )
-        return
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        IconButton(onClick = onOpenSidebar, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
-            Avatar(name = profile.displayName, size = 32.dp)
-        }
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = { Text("Search title or description") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear")
-                    }
-                }
-            },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-
-        when (val state = uiState) {
-            is UiState.Loading -> LoadingView(message = "Searching nearby listings...")
-            is UiState.Error -> ErrorView(message = state.message, onRetry = { loadListings() })
-            is UiState.Success -> {
-                val filtered = state.data.filter { it.matchesFilters(filters) && it.matchesQuery(searchQuery) }
-
-                if (filtered.isEmpty()) {
-                    val widest = DISTANCE_OPTIONS_KM.last()
-                    val filtersOn = searchQuery.isNotBlank() || filters != BrowseFilters(radiusKm = radiusKm)
-                    EmptyView(
-                        title = "No Listings Found",
-                        description = when {
-                            filtersOn -> "No clothes match your filters within $radiusKm km. Try clearing search, changing category or a larger distance."
-                            radiusKm < widest -> "Nothing listed within $radiusKm km yet. Try a larger distance."
-                            else -> "No nearby clothes have been posted yet. Check back soon or list your own!"
-                        },
-                        icon = Icons.Default.SearchOff,
-                        onAction = if (filtersOn || radiusKm < widest) {
-                            {
-                                searchQuery = ""
-                                onClearFilters()
-                            }
-                        } else {
-                            { loadListings() }
-                        },
-                        actionLabel = if (filtersOn || radiusKm < widest) "Clear filters, show $widest km" else "Refresh"
-                    )
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(filtered, key = { it.id }) { listing ->
-                            ListingCard(listing = listing, onClick = { onListingClick(listing.id) })
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /** "$25 · 2.4 km". Listings from before prices were required show the distance only. */
@@ -613,6 +493,8 @@ private fun MyListingsContent(
     onEditListing: (listingId: String) -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<ClosetData>>(UiState.Loading) }
+    var sort by rememberSaveable { mutableStateOf(ClosetSort.NEWEST) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
     var busyIds by remember { mutableStateOf(emptySet<String>()) }
     var actionError by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<Listing?>(null) }
@@ -707,6 +589,35 @@ private fun MyListingsContent(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val count = state.data.listings.size
+                            Text(
+                                text = "$count ${if (count == 1) "piece" else "pieces"}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box {
+                                IconButton(onClick = { sortMenuOpen = true }) {
+                                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort: ${sort.label}")
+                                }
+                                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                                    ClosetSort.entries.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(option.label, fontWeight = if (option == sort) FontWeight.Bold else FontWeight.Normal)
+                                            },
+                                            onClick = {
+                                                sort = option
+                                                sortMenuOpen = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     actionError?.let { message ->
                         item {
                             Text(
@@ -716,7 +627,7 @@ private fun MyListingsContent(
                             )
                         }
                     }
-                    items(state.data.listings, key = { it.id }) { listing ->
+                    items(sortCloset(state.data.listings, sort), key = { it.id }) { listing ->
                         ClosetListingCard(
                             listing = listing,
                             rentedOut = listing.id in state.data.rentedOut,
