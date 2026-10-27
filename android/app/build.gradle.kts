@@ -47,15 +47,19 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     dependsOn(requireReleaseSupabaseConfig)
 }
 
+// Google Play rejects an upload whose versionCode is not higher than every earlier one,
+// so CI builds use the workflow run number. Local builds keep the fixed value.
+val appVersionCode: Int = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.dzirent.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.dzirent.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
+        targetSdk = 36
+        versionCode = appVersionCode
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
