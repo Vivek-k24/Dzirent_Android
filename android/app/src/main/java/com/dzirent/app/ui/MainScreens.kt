@@ -372,10 +372,9 @@ private fun PhotoCarousel(photos: List<ListingPhoto>, title: String) {
             .height(320.dp)
             .clip(shape)
     ) { page ->
-        AsyncImage(
-            model = photos[page].storagePath,
+        ListingPhoto(
+            url = photos[page].storagePath,
             contentDescription = "$title, photo ${page + 1} of ${photos.size}",
-            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -441,7 +440,8 @@ fun MyClosetScreen(
     onListItem: () -> Unit,
     onOpenListing: (listingId: String) -> Unit,
     onEditListing: (listingId: String) -> Unit,
-    onOpenChat: (conversationId: String) -> Unit
+    onOpenChat: (conversationId: String) -> Unit,
+    onBrowse: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier = Modifier.fillMaxSize()) {
@@ -459,19 +459,20 @@ fun MyClosetScreen(
             Text("List an item")
         }
         if (!showRentalsTab) {
-            MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
+            MyListingsContent(repository, currentUserId, onOpenListing, onEditListing, onListItem)
         } else {
-            TabRow(selectedTabIndex = selectedTab) {
+            DzirentTabRow(selectedTabIndex = selectedTab) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Listings") })
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("My Rentals") })
             }
             when (selectedTab) {
-                0 -> MyListingsContent(repository, currentUserId, onOpenListing, onEditListing)
+                0 -> MyListingsContent(repository, currentUserId, onOpenListing, onEditListing, onListItem)
                 else -> MyRentalsScreen(
                     repository = repository,
                     currentUserId = currentUserId,
                     showTitle = false,
-                    onOpenChat = onOpenChat
+                    onOpenChat = onOpenChat,
+                    onBrowse = onBrowse
                 )
             }
         }
@@ -498,7 +499,8 @@ private fun MyListingsContent(
     repository: DzirentRepository,
     currentUserId: String,
     onOpenListing: (listingId: String) -> Unit,
-    onEditListing: (listingId: String) -> Unit
+    onEditListing: (listingId: String) -> Unit,
+    onListItem: () -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<ClosetData>>(UiState.Loading) }
     var sort by rememberSaveable { mutableStateOf(ClosetSort.NEWEST) }
@@ -588,8 +590,10 @@ private fun MyListingsContent(
             if (state.data.listings.isEmpty()) {
                 EmptyView(
                     title = "Your Closet is Empty",
-                    description = "You haven't listed any clothes yet. Tap \"List an item\" to share pieces from your wardrobe.",
-                    icon = Icons.Default.Checkroom
+                    description = "You haven't listed any clothes yet. Share pieces from your wardrobe.",
+                    icon = Icons.Default.Checkroom,
+                    onAction = onListItem,
+                    actionLabel = "List an item"
                 )
             } else {
                 LazyColumn(
@@ -749,7 +753,8 @@ fun MyRentalsScreen(
     repository: DzirentRepository,
     currentUserId: String,
     showTitle: Boolean = true,
-    onOpenChat: (conversationId: String) -> Unit
+    onOpenChat: (conversationId: String) -> Unit,
+    onBrowse: () -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<List<Rental>>>(UiState.Loading) }
     val scope = rememberCoroutineScope()
@@ -781,8 +786,10 @@ fun MyRentalsScreen(
                 if (active.isEmpty() && past.isEmpty()) {
                     EmptyView(
                         title = "No active rentals yet",
-                        description = "No active rentals yet. When you rent something, mark it as rented in the chat and it will show up here.",
-                        icon = Icons.Default.ShoppingBag
+                        description = "When you rent something, mark it as rented in the chat and it will show up here.",
+                        icon = Icons.Default.ShoppingBag,
+                        onAction = onBrowse,
+                        actionLabel = "Browse Home"
                     )
                 } else {
                     LazyColumn(
@@ -864,20 +871,13 @@ private fun RentalRow(rental: Rental, onClick: () -> Unit) {
 /** Square first-photo thumbnail, or the no-photo placeholder. */
 @Composable
 fun ListingThumbnail(listing: Listing?, size: androidx.compose.ui.unit.Dp) {
-    val photoUrl = listing?.photos?.minByOrNull { it.position }?.storagePath
-    val modifier = Modifier
-        .size(size)
-        .clip(RoundedCornerShape(8.dp))
-    if (!photoUrl.isNullOrBlank()) {
-        AsyncImage(
-            model = photoUrl,
-            contentDescription = listing.title,
-            contentScale = ContentScale.Crop,
-            modifier = modifier
-        )
-    } else {
-        NoPhotoPlaceholder(modifier = modifier, compact = true)
-    }
+    ListingPhoto(
+        url = listing?.photos?.minByOrNull { it.position }?.storagePath,
+        contentDescription = listing?.title,
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(8.dp))
+    )
 }
 
 // --- PROFILE SCREEN ---

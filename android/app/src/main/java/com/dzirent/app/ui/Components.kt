@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,23 @@ fun Avatar(name: String, size: Dp, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+/** Tab row whose active-tab underline is the accent (the only accent on these screens). */
+@Composable
+fun DzirentTabRow(selectedTabIndex: Int, tabs: @Composable () -> Unit) {
+    TabRow(
+        selectedTabIndex = selectedTabIndex,
+        indicator = { positions ->
+            if (selectedTabIndex < positions.size) {
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier.tabIndicatorOffset(positions[selectedTabIndex]),
+                    color = DzirentAccent
+                )
+            }
+        },
+        tabs = tabs
+    )
 }
 
 /** Small accent dot: unread messages or new activity. */
@@ -109,7 +127,7 @@ fun NoPhotoPlaceholder(
             if (!compact) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "No images available · Test only",
+                    text = "No photo",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

@@ -52,7 +52,8 @@ fun InboxScreen(
     repository: DzirentRepository,
     currentUserId: String,
     onConversationClick: (conversationId: String) -> Unit,
-    onNewsChanged: (Boolean) -> Unit
+    onNewsChanged: (Boolean) -> Unit,
+    onBrowse: () -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<InboxSnapshot>>(UiState.Loading) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -87,7 +88,7 @@ fun InboxScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenTitle("Inbox")
-        TabRow(selectedTabIndex = selectedTab) {
+        DzirentTabRow(selectedTabIndex = selectedTab) {
             Tab(
                 selected = selectedTab == 0,
                 onClick = { selectedTab = 0 },
@@ -105,9 +106,9 @@ fun InboxScreen(
             is UiState.Loading -> LoadingView(message = "Loading your inbox...")
             is UiState.Error -> ErrorView(message = state.message, onRetry = { load() })
             is UiState.Success -> if (selectedTab == 0) {
-                MessagesList(state.data, currentUserId, onConversationClick)
+                MessagesList(state.data, currentUserId, onConversationClick, onBrowse)
             } else {
-                ActivityList(state.data.activity, onConversationClick)
+                ActivityList(state.data.activity, onConversationClick, onBrowse)
             }
         }
     }
@@ -125,12 +126,19 @@ private fun TabLabel(text: String, dot: Boolean) {
 }
 
 @Composable
-private fun MessagesList(snapshot: InboxSnapshot, currentUserId: String, onConversationClick: (String) -> Unit) {
+private fun MessagesList(
+    snapshot: InboxSnapshot,
+    currentUserId: String,
+    onConversationClick: (String) -> Unit,
+    onBrowse: () -> Unit
+) {
     if (snapshot.conversations.isEmpty()) {
         EmptyView(
             title = "No messages yet",
             description = "When you message a lender or a renter messages you, your chats show up here.",
-            icon = Icons.Default.ChatBubbleOutline
+            icon = Icons.Default.ChatBubbleOutline,
+            onAction = onBrowse,
+            actionLabel = "Browse Home"
         )
         return
     }
@@ -151,12 +159,14 @@ private fun MessagesList(snapshot: InboxSnapshot, currentUserId: String, onConve
 }
 
 @Composable
-private fun ActivityList(items: List<ActivityItem>, onConversationClick: (String) -> Unit) {
+private fun ActivityList(items: List<ActivityItem>, onConversationClick: (String) -> Unit, onBrowse: () -> Unit) {
     if (items.isEmpty()) {
         EmptyView(
             title = "No activity yet",
             description = "Rental updates and reminders about your chats show up here.",
-            icon = Icons.Default.NotificationsNone
+            icon = Icons.Default.NotificationsNone,
+            onAction = onBrowse,
+            actionLabel = "Browse Home"
         )
         return
     }

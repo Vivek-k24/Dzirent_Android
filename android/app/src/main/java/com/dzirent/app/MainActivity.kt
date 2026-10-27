@@ -363,7 +363,8 @@ fun MainAppScaffold(
                         repository = repository,
                         currentUserId = profile.id,
                         onConversationClick = { conversationId -> openChat(conversationId) },
-                        onNewsChanged = { inboxHasNews = it }
+                        onNewsChanged = { inboxHasNews = it },
+                        onBrowse = { openTab(TabHome.route) }
                     )
                 }
                 composable(
@@ -411,13 +412,15 @@ fun MainAppScaffold(
                             onListItem = { navController.navigate("list") },
                             onOpenListing = { id -> navController.navigate("detail/$id") },
                             onEditListing = { id -> navController.navigate("edit/$id") },
-                            onOpenChat = { conversationId -> openChat(conversationId) }
+                            onOpenChat = { conversationId -> openChat(conversationId) },
+                            onBrowse = { openTab(TabHome.route) }
                         )
                     } else {
                         MyRentalsScreen(
                             repository = repository,
                             currentUserId = profile.id,
-                            onOpenChat = { conversationId -> openChat(conversationId) }
+                            onOpenChat = { conversationId -> openChat(conversationId) },
+                            onBrowse = { openTab(TabHome.route) }
                         )
                     }
                 }

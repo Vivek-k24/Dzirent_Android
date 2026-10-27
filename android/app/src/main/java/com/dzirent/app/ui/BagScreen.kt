@@ -93,7 +93,7 @@ fun BagScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenTitle("Bag")
-        TabRow(selectedTabIndex = if (studiosTab) 1 else 0) {
+        DzirentTabRow(selectedTabIndex = if (studiosTab) 1 else 0) {
             Tab(selected = !studiosTab, onClick = { studiosTab = false }, text = { Text("Pieces") })
             Tab(selected = studiosTab, onClick = { studiosTab = true }, text = { Text("Studios") })
         }

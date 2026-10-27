@@ -247,7 +247,7 @@ private fun HomeContent(
             }
         }
         fullWidth("tabs") {
-            TabRow(selectedTabIndex = if (studiosTab) 1 else 0) {
+            DzirentTabRow(selectedTabIndex = if (studiosTab) 1 else 0) {
                 Tab(selected = !studiosTab, onClick = { onTabChange(false) }, text = { Text("Products") })
                 Tab(selected = studiosTab, onClick = { onTabChange(true) }, text = { Text("Studios") })
             }
