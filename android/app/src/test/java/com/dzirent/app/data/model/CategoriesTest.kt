@@ -32,7 +32,7 @@ class CategoriesTest {
     @Test
     fun otherCategoriesIgnoreItemType() {
         assertEquals(
-            listOf("Chest", "Length", "Waist", "Inseam"),
+            listOf("Chest (flat)", "Length", "Waist (flat)", "Inseam"),
             Categories.measurementSuggestions("Everyday", "Sunglasses")
         )
     }

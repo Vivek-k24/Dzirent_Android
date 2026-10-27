@@ -10,11 +10,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.dzirent.app.data.repository.DzirentException
 import com.dzirent.app.ui.theme.DzirentAccent
 
@@ -63,6 +66,27 @@ fun AccentDot(modifier: Modifier = Modifier) {
             .clip(CircleShape)
             .background(DzirentAccent)
     )
+}
+
+/**
+ * A listing photo that shows plain gray while it loads, if it fails, or when there is no
+ * photo at all. Crops to fill [modifier]'s size.
+ */
+@Composable
+fun ListingPhoto(url: String?, contentDescription: String?, modifier: Modifier = Modifier) {
+    val gray = MaterialTheme.colorScheme.surfaceVariant
+    if (url.isNullOrBlank()) {
+        Box(modifier = modifier.background(gray))
+    } else {
+        AsyncImage(
+            model = url,
+            contentDescription = contentDescription,
+            contentScale = ContentScale.Crop,
+            placeholder = ColorPainter(gray),
+            error = ColorPainter(gray),
+            modifier = modifier.background(gray)
+        )
+    }
 }
 
 /** Shown wherever a listing has no photos (pilot test listings have none). */

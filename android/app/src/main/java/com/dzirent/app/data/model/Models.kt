@@ -254,12 +254,13 @@ object Categories {
         ACCESSORIES
     )
 
+    // "(flat)" = measured across the garment laid flat; the fit rule doubles these.
     private val SUGGESTIONS = mapOf(
-        "Career & Professional" to listOf("Shoulder", "Chest", "Sleeve", "Length", "Waist"),
-        "Occasion & Party" to listOf("Bust", "Waist", "Hips", "Total Length", "Shoulder"),
-        "Cultural & Traditional" to listOf("Chest/Bust", "Waist", "Kurta/Top Length", "Bottom Length", "Shoulder"),
-        "Everyday" to listOf("Chest", "Length", "Waist", "Inseam"),
-        "Outerwear" to listOf("Chest", "Shoulder", "Sleeve Length", "Total Length")
+        "Career & Professional" to listOf("Shoulder", "Chest (flat)", "Sleeve", "Length", "Waist (flat)"),
+        "Occasion & Party" to listOf("Bust (flat)", "Waist (flat)", "Hips (flat)", "Total Length", "Shoulder"),
+        "Cultural & Traditional" to listOf("Chest/Bust (flat)", "Waist (flat)", "Kurta/Top Length", "Bottom Length", "Shoulder"),
+        "Everyday" to listOf("Chest (flat)", "Length", "Waist (flat)", "Inseam"),
+        "Outerwear" to listOf("Chest (flat)", "Shoulder", "Sleeve Length", "Total Length")
     )
 
     /** Quick-add measurement labels; accessories get them per item type (none until one is picked). */

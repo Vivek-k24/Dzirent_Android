@@ -23,6 +23,48 @@ data class DateRange(val start: LocalDate, val end: LocalDate) {
     fun format(): String = "${start.format(shortDate)} - ${end.format(shortDate)}"
 }
 
+/** Days in Home's default date range: today through today + 4 (5 days). */
+const val DEFAULT_RANGE_EXTRA_DAYS = 4L
+
+/** Home's starting date range: [today] through today + [DEFAULT_RANGE_EXTRA_DAYS]. */
+fun defaultBrowseRange(today: LocalDate): DateRange = DateRange(today, today.plusDays(DEFAULT_RANGE_EXTRA_DAYS))
+
+private val dayOnly = DateTimeFormatter.ofPattern("d", Locale.US)
+
+/**
+ * The Home date chip: "Oct 26 - 30" in one month, "Oct 26 - Nov 1" across months,
+ * "Dec 30 - Jan 2" across years, "Oct 26" for a single day. There is no "any date".
+ */
+fun formatDateChip(range: DateRange): String {
+    val start = range.start.format(shortDate)
+    return when {
+        range.start == range.end -> start
+        range.start.year == range.end.year && range.start.month == range.end.month ->
+            "$start - ${range.end.format(dayOnly)}"
+        else -> "$start - ${range.end.format(shortDate)}"
+    }
+}
+
+/**
+ * True if [wanted] lies inside the availability [windows]. Back-to-back (the next window
+ * starts the day after) and overlapping windows are joined first, so a range spanning
+ * them counts. No windows at all means "available any time" (listings from before
+ * availability was required).
+ */
+fun isAvailableFor(windows: List<DateRange>, wanted: DateRange): Boolean {
+    if (windows.isEmpty()) return true
+    val merged = mutableListOf<DateRange>()
+    windows.sortedBy { it.start }.forEach { window ->
+        val last = merged.lastOrNull()
+        if (last != null && !window.start.isAfter(last.end.plusDays(1))) {
+            if (window.end.isAfter(last.end)) merged[merged.lastIndex] = DateRange(last.start, window.end)
+        } else {
+            merged += window
+        }
+    }
+    return merged.any { !it.start.isAfter(wanted.start) && !it.end.isBefore(wanted.end) }
+}
+
 /** The first existing range that [candidate] overlaps, or null if it fits. */
 fun firstOverlap(candidate: DateRange, existing: List<DateRange>): DateRange? =
     existing.firstOrNull { it.overlaps(candidate) }

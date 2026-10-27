@@ -74,6 +74,9 @@ private data class ListingIdRow(@SerialName("listing_id") val listingId: String)
 @Serializable
 private data class ConversationIdRow(@SerialName("conversation_id") val conversationId: String)
 
+@Serializable
+private data class LenderIdRow(@SerialName("lender_id") val lenderId: String)
+
 /** Everything Inbox and its dot need: my chats, which are unread, and Activity. */
 data class InboxSnapshot(
     val conversations: List<Conversation>,
@@ -381,6 +384,47 @@ class DzirentRepository {
             .map { it.copy(distanceKm = haversineKm(lat, lng, it.approxLat, it.approxLng)) }
             .filter { (it.distanceKm ?: 0.0) <= radiusKm }
         return withPhotos(nearby)
+    }
+
+    /**
+     * Nearby listings for Home and Search, with photos, availability, measurements and the
+     * lender's public profile filled in (one batched query each).
+     */
+    suspend fun getBrowseListings(lat: Double, lng: Double, radiusKm: Double): List<Listing> {
+        val listings = getNearbyListings(lat, lng, radiusKm)
+        if (listings.isEmpty()) return listings
+        val ids = listings.map { it.id }
+        return try {
+            val availability = postgrest.from("availability").select {
+                filter { isIn("listing_id", ids) }
+            }.decodeList<Availability>().groupBy { it.listingId }
+            val measurements = postgrest.from("listing_measurements").select {
+                filter { isIn("listing_id", ids) }
+            }.decodeList<ListingMeasurement>().groupBy { it.listingId }
+            val lenders = postgrest.from("profiles").select(Columns.list("id", "display_name", "city")) {
+                filter { isIn("id", listings.map { it.lenderId }.distinct()) }
+            }.decodeList<Profile>().associateBy { it.id }
+            listings.map {
+                it.copy(
+                    availability = availability[it.id].orEmpty().sortedBy { range -> range.startDate },
+                    measurements = measurements[it.id].orEmpty(),
+                    lender = lenders[it.lenderId]
+                )
+            }
+        } catch (e: Exception) {
+            throw fail("load listings", e)
+        }
+    }
+
+    /** Lender ids in my saved studios. */
+    suspend fun getSavedStudioIds(userId: String): Set<String> {
+        return try {
+            postgrest.from("saved_studios").select(Columns.list("lender_id")) {
+                filter { eq("user_id", userId) }
+            }.decodeList<LenderIdRow>().map { it.lenderId }.toSet()
+        } catch (e: Exception) {
+            throw fail("load your saved studios", e)
+        }
     }
 
     /** Fills in photos for many listings with one batched "in" query. */

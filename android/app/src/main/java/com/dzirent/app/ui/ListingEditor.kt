@@ -194,6 +194,7 @@ private fun ListingEditorForm(
             showAllMeasurementErrors = true
             return "Fix the highlighted measurements, or remove those rows."
         }
+        if (ranges.isEmpty()) return "Add the dates this piece is available."
         return null
     }
 

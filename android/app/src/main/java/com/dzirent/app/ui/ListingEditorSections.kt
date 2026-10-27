@@ -152,7 +152,7 @@ fun AvailabilitySection(
 
     Text(text = "Available dates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     Text(
-        text = "Optional. Renters see these on your listing.",
+        text = "Required. Renters find your piece only for dates inside these ranges.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )

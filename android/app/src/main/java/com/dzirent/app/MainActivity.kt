@@ -33,6 +33,7 @@ import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.ui.theme.DzirentTheme
 import com.dzirent.app.util.BrowseFilters
 import com.dzirent.app.util.DISTANCE_OPTIONS_KM
+import com.dzirent.app.util.HomeRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -165,8 +166,8 @@ fun MainAppScaffold(
     val locationPrompts = remember { LocationPromptStore(context) }
     var inboxHasNews by remember { mutableStateOf(false) }
     val backStackEntry by navController.currentBackStackEntryAsState()
-    // Set from the sidebar and its filter sheet; Home and Search both use them.
-    var filters by remember { mutableStateOf(BrowseFilters()) }
+    // Filters (set from the sidebar), dates and nearby listings, shared by Home and Search.
+    val session = remember(profile.id) { BrowseSession(repository, profile.id) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var showFilterSheet by remember { mutableStateOf(false) }
     val onHome = backStackEntry?.destination?.route == TabHome.route
@@ -228,9 +229,9 @@ fun MainAppScaffold(
 
     if (showFilterSheet) {
         FilterSheet(
-            current = filters,
+            current = session.filters,
             onApply = { applied ->
-                filters = applied
+                session.filters = applied
                 showFilterSheet = false
                 closeDrawer()
                 if (!onHome) openTab(TabHome.route)
@@ -246,11 +247,11 @@ fun MainAppScaffold(
         drawerContent = {
             SidebarContent(
                 profile = profile,
-                selectedCategory = filters.category,
+                selectedCategory = session.filters.category,
                 onOpenProfile = { openFromDrawer("profile") },
                 onOpenSettings = { openFromDrawer("settings") },
                 onSelectCategory = { category ->
-                    filters = filters.withCategory(category)
+                    session.filters = session.filters.withCategory(category)
                     closeDrawer()
                     if (!onHome) openTab(TabHome.route)
                 },
@@ -279,26 +280,34 @@ fun MainAppScaffold(
                 modifier = Modifier.padding(innerPadding)
             ) {
                 composable("home") {
-                    BrowseScreen(
-                        repository = repository,
+                    HomeScreen(
+                        session = session,
                         profile = profile,
-                        filters = filters,
-                        onSetLocation = { showLocationSetup = true },
                         onOpenSidebar = { scope.launch { drawerState.open() } },
-                        onClearFilters = { filters = BrowseFilters(radiusKm = DISTANCE_OPTIONS_KM.last()) },
-                        onListingClick = { listingId ->
-                            navController.navigate("detail/$listingId")
-                        }
+                        onSetLocation = { showLocationSetup = true },
+                        onOpenListing = { listingId -> navController.navigate("detail/$listingId") },
+                        onOpenStudio = null,
+                        onSeeAll = { row -> navController.navigate("seeall/${row.name}") },
+                        onOpenMeasurements = { navController.navigate("measurements") }
+                    )
+                }
+                composable("seeall/{row}") { backStackEntry ->
+                    val row = HomeRow.entries.firstOrNull { it.name == backStackEntry.arguments?.getString("row") } ?: HomeRow.NEW
+                    SeeAllScreen(
+                        session = session,
+                        row = row,
+                        onBack = { navController.popBackStack() },
+                        onOpenListing = { listingId -> navController.navigate("detail/$listingId") }
                     )
                 }
                 composable("search") {
                     BrowseScreen(
                         repository = repository,
                         profile = profile,
-                        filters = filters,
+                        filters = session.filters,
                         onSetLocation = { showLocationSetup = true },
                         onOpenSidebar = { scope.launch { drawerState.open() } },
-                        onClearFilters = { filters = BrowseFilters(radiusKm = DISTANCE_OPTIONS_KM.last()) },
+                        onClearFilters = { session.filters = BrowseFilters(radiusKm = DISTANCE_OPTIONS_KM.last()) },
                         onListingClick = { listingId ->
                             navController.navigate("detail/$listingId")
                         }
@@ -424,7 +433,11 @@ fun MainAppScaffold(
                     BodyMeasurementsScreen(
                         repository = repository,
                         userId = profile.id,
-                        onBack = { navController.popBackStack() }
+                        onBack = {
+                            // The fit row depends on these, so Home loads them again.
+                            session.invalidate()
+                            navController.popBackStack()
+                        }
                     )
                 }
                 composable("blocked") {

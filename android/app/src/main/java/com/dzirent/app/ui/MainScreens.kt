@@ -41,6 +41,7 @@ import com.dzirent.app.util.matchesFilters
 import com.dzirent.app.util.matchesQuery
 import com.dzirent.app.util.formatDateRange
 import com.dzirent.app.util.formatDistance
+import com.dzirent.app.util.formatPrice
 import com.dzirent.app.util.parseDateRange
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -170,63 +171,40 @@ fun BrowseScreen(
     }
 }
 
-@Composable
-fun ListingCard(listing: Listing, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column {
-            val photoUrl = listing.photos.firstOrNull()?.storagePath
-            if (!photoUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = photoUrl,
-                    contentDescription = listing.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                )
-            } else {
-                NoPhotoPlaceholder(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                )
-            }
+/** "$25 · 2.4 km". Listings from before prices were required show the distance only. */
+fun cardSubtitle(listing: Listing): String =
+    listOfNotNull(listing.priceUsd?.let { formatPrice(it) }, listing.distanceKm?.let { formatDistance(it) })
+        .joinToString(" · ")
 
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = listing.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${listing.typeLabel} • ${listing.sizeLabel}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = listing.priceLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = listOfNotNull(
-                        listing.distanceKm?.let { formatDistance(it) },
-                        listing.city.ifBlank { null }
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
+/** Large photo, title and "$price · distance". No icons on cards. */
+@Composable
+fun ListingCard(listing: Listing, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        ListingPhoto(
+            url = listing.photos.minByOrNull { it.position }?.storagePath,
+            contentDescription = listing.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(3f / 4f)
+                .clip(RoundedCornerShape(8.dp))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = listing.title,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = cardSubtitle(listing),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 
@@ -426,7 +404,8 @@ fun ListingDetailScreen(
                             .filter { !it.end.isBefore(today) }
                         if (upcoming.isEmpty()) {
                             Text(
-                                text = "No dates listed. Ask the lender in chat.",
+                                // Listings from before dates were required have none at all.
+                                text = if (listing.availability.isEmpty()) "Ask about dates" else "No upcoming dates. Ask the lender in chat.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
