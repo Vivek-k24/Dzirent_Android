@@ -1,5 +1,6 @@
 package com.dzirent.app.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -265,7 +266,7 @@ fun ListingCard(listing: Listing, onClick: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = listing.priceNote,
+                    text = listing.priceLabel,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -297,7 +298,12 @@ fun ListingDetailScreen(
     var uiState by remember { mutableStateOf<UiState<Listing>>(UiState.Loading) }
     var menuOpen by remember { mutableStateOf(false) }
     var reportTarget by remember { mutableStateOf<ReportTarget?>(null) }
+    // Null until known; only loaded for other people's listings.
+    var isSaved by remember { mutableStateOf<Boolean?>(null) }
+    var savingBookmark by remember { mutableStateOf(false) }
+    var viewRecorded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     fun loadDetail() {
         scope.launch {
@@ -305,9 +311,32 @@ fun ListingDetailScreen(
             try {
                 val detail = repository.getListingDetail(listingId)
                 uiState = UiState.Success(detail)
+                if (detail.lenderId != currentUserId) {
+                    if (!viewRecorded) {
+                        viewRecorded = true
+                        repository.recordListingEvent(currentUserId, detail.id, ListingEvents.VIEW)
+                    }
+                    isSaved = runCatching { repository.isListingSaved(currentUserId, detail.id) }.getOrNull()
+                }
             } catch (e: Exception) {
                 uiState = UiState.Error(e.userMessage("Failed to load listing details."))
             }
+        }
+    }
+
+    fun toggleSaved(listing: Listing) {
+        val saved = isSaved ?: return
+        if (savingBookmark) return
+        scope.launch {
+            savingBookmark = true
+            try {
+                if (saved) repository.unsaveListing(currentUserId, listing.id)
+                else repository.saveListing(currentUserId, listing.id)
+                isSaved = !saved
+            } catch (e: Exception) {
+                Toast.makeText(context, e.userMessage("Couldn't update your Bag. Please try again."), Toast.LENGTH_SHORT).show()
+            }
+            savingBookmark = false
         }
     }
 
@@ -331,6 +360,16 @@ fun ListingDetailScreen(
                         Icon(Icons.Default.Edit, contentDescription = "Edit listing")
                     }
                 } else if (loaded != null) {
+                    val saved = isSaved
+                    if (saved != null) {
+                        IconButton(onClick = { toggleSaved(loaded) }, enabled = !savingBookmark) {
+                            Icon(
+                                imageVector = if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = if (saved) "Remove from Bag" else "Save to Bag",
+                                tint = if (saved) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                            )
+                        }
+                    }
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More options")
@@ -389,11 +428,19 @@ fun ListingDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = listing.priceNote,
+                        text = listing.priceLabel,
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
+                    // With a price set, the note is extra detail under it.
+                    if (listing.priceUsd != null && listing.priceNote.isNotBlank()) {
+                        Text(
+                            text = listing.priceNote,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -985,6 +1032,7 @@ fun ProfileScreen(
     profile: Profile,
     onProfileUpdated: (Profile) -> Unit,
     onSetLocation: () -> Unit,
+    onOpenMeasurements: () -> Unit,
     onOpenPolicy: () -> Unit,
     onOpenBlockedUsers: () -> Unit,
     onSignOut: () -> Unit
@@ -1139,6 +1187,14 @@ fun ProfileScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        ListItem(
+            headlineContent = { Text("My measurements") },
+            supportingContent = { Text("For comparing with each piece. Only you can see them.") },
+            leadingContent = { Icon(Icons.Default.Straighten, contentDescription = null) },
+            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            modifier = Modifier.clickable { onOpenMeasurements() }
+        )
         HorizontalDivider()
         ListItem(
             headlineContent = { Text("Update my location") },

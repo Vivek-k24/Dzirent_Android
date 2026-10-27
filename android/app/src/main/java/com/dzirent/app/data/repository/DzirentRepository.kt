@@ -7,6 +7,7 @@ import android.media.ExifInterface
 import android.util.Log
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
+import com.dzirent.app.util.BodyMeasurement
 import com.dzirent.app.util.haversineKm
 import com.dzirent.app.util.roundCoord
 import com.dzirent.app.util.timestampMillis
@@ -248,6 +249,34 @@ class DzirentRepository {
         }
     }
 
+    /** My private_profiles row, or an empty one if I never saved anything there. */
+    suspend fun getPrivateProfile(userId: String): PrivateProfile {
+        return try {
+            postgrest.from("private_profiles")
+                .select { filter { eq("user_id", userId) } }
+                .decodeSingleOrNull<PrivateProfile>() ?: PrivateProfile(userId = userId)
+        } catch (e: Exception) {
+            throw fail("load your measurements", e)
+        }
+    }
+
+    /**
+     * Saves my body measurements (cm, null clears one). The upsert creates my row the
+     * first time and otherwise changes only these six columns.
+     */
+    suspend fun saveBodyMeasurements(userId: String, valuesCm: Map<BodyMeasurement, Double?>): PrivateProfile {
+        return try {
+            postgrest.from("private_profiles").upsert(
+                buildJsonObject {
+                    put("user_id", userId)
+                    valuesCm.forEach { (measurement, cm) -> put(measurement.column, cm) }
+                }
+            ) { select() }.decodeSingle<PrivateProfile>()
+        } catch (e: Exception) {
+            throw fail("save your measurements", e)
+        }
+    }
+
     /** Saves my approximate location (rounded to 2 decimals) to my own profile row. */
     suspend fun updateLocation(userId: String, lat: Double, lng: Double, city: String): Profile {
         try {
@@ -409,6 +438,7 @@ class DzirentRepository {
                     put("item_type", listing.itemType)
                     put("size_label", listing.sizeLabel)
                     put("description", listing.description)
+                    put("price_usd", listing.priceUsd)
                     put("price_note", listing.priceNote)
                     put("retail_value", listing.retailValue)
                     put("deposit_note", listing.depositNote)
@@ -467,6 +497,68 @@ class DzirentRepository {
             }
         } catch (e: Exception) {
             throw fail("delete your listing", e)
+        }
+    }
+
+    // --- SAVED PIECES & EVENTS ---
+
+    /** True if [listingId] is in my saved pieces. */
+    suspend fun isListingSaved(userId: String, listingId: String): Boolean {
+        return try {
+            postgrest.from("saved_listings").select(Columns.list("listing_id")) {
+                filter {
+                    eq("user_id", userId)
+                    eq("listing_id", listingId)
+                }
+            }.decodeList<ListingIdRow>().isNotEmpty()
+        } catch (e: Exception) {
+            throw fail("load your saved pieces", e)
+        }
+    }
+
+    /** Adds a listing to my saved pieces (saving twice is harmless) and records a save event. */
+    suspend fun saveListing(userId: String, listingId: String) {
+        try {
+            postgrest.from("saved_listings").upsert(
+                buildJsonObject {
+                    put("user_id", userId)
+                    put("listing_id", listingId)
+                }
+            ) { ignoreDuplicates = true }
+        } catch (e: Exception) {
+            throw fail("save this piece", e)
+        }
+        recordListingEvent(userId, listingId, ListingEvents.SAVE)
+    }
+
+    suspend fun unsaveListing(userId: String, listingId: String) {
+        try {
+            postgrest.from("saved_listings").delete {
+                filter {
+                    eq("user_id", userId)
+                    eq("listing_id", listingId)
+                }
+            }
+        } catch (e: Exception) {
+            throw fail("remove this piece", e)
+        }
+    }
+
+    /**
+     * Adds a row to listing_events (data for future personalization). Never fails the
+     * caller: a lost event only gets logged.
+     */
+    suspend fun recordListingEvent(userId: String, listingId: String, type: String) {
+        try {
+            postgrest.from("listing_events").insert(
+                buildJsonObject {
+                    put("user_id", userId)
+                    put("listing_id", listingId)
+                    put("type", type)
+                }
+            )
+        } catch (e: Exception) {
+            logError("record $type event", e)
         }
     }
 
@@ -634,6 +726,7 @@ class DzirentRepository {
                 lenderId = lenderId
             )
             postgrest.from("conversations").insert(newConv)
+            recordListingEvent(renterId, listingId, ListingEvents.MESSAGE)
             newConv
         } catch (e: Exception) {
             throw failBlockAware("open the chat", e)

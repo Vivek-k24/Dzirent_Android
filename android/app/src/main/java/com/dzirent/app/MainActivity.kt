@@ -328,9 +328,17 @@ fun MainAppScaffold(
                     profile = profile,
                     onProfileUpdated = { updated -> profile = updated },
                     onSetLocation = { showLocationSetup = true },
+                    onOpenMeasurements = { navController.navigate("measurements") },
                     onOpenPolicy = { navController.navigate("policy") },
                     onOpenBlockedUsers = { navController.navigate("blocked") },
                     onSignOut = onSignOut
+                )
+            }
+            composable("measurements") {
+                BodyMeasurementsScreen(
+                    repository = repository,
+                    userId = profile.id,
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable("blocked") {

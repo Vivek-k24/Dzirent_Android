@@ -1,5 +1,7 @@
 package com.dzirent.app.data.model
 
+import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.formatPrice
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -19,6 +21,33 @@ data class Profile(
     @SerialName("created_at") val createdAt: String? = null
 ) {
     val hasLocation: Boolean get() = approxLat != null && approxLng != null
+}
+
+/**
+ * My row of public.private_profiles: data only I can read (RLS), unlike [Profile].
+ * The row may not exist yet; it is created on the first save.
+ */
+@Serializable
+data class PrivateProfile(
+    @SerialName("user_id") val userId: String,
+    // Body measurements in cm (Profile > My measurements).
+    @SerialName("chest_cm") val chestCm: Double? = null,
+    @SerialName("waist_cm") val waistCm: Double? = null,
+    @SerialName("hips_cm") val hipsCm: Double? = null,
+    @SerialName("shoulder_cm") val shoulderCm: Double? = null,
+    @SerialName("height_cm") val heightCm: Double? = null,
+    @SerialName("inseam_cm") val inseamCm: Double? = null,
+    /** When I last opened Inbox > Activity. */
+    @SerialName("activity_seen_at") val activitySeenAt: String? = null
+) {
+    fun bodyCm(measurement: BodyMeasurement): Double? = when (measurement) {
+        BodyMeasurement.CHEST -> chestCm
+        BodyMeasurement.WAIST -> waistCm
+        BodyMeasurement.HIPS -> hipsCm
+        BodyMeasurement.SHOULDER -> shoulderCm
+        BodyMeasurement.HEIGHT -> heightCm
+        BodyMeasurement.INSEAM -> inseamCm
+    }
 }
 
 /** A row of public.us_cities: a US city, town or CDP from the Census Gazetteer, rounded to ~1 km. */
@@ -44,6 +73,9 @@ data class Listing(
     @SerialName("item_type") val itemType: String? = null,
     @SerialName("size_label") val sizeLabel: String = "",
     val description: String = "",
+    /** Price per rental in USD; null only on listings created before prices were required. */
+    @SerialName("price_usd") val priceUsd: Double? = null,
+    /** Optional price details next to [priceUsd] (was the only price field before). */
     @SerialName("price_note") val priceNote: String = "",
     val city: String = "",
     @SerialName("approx_lat") val approxLat: Double,
@@ -60,6 +92,36 @@ data class Listing(
 ) {
     /** "Sunglasses" for accessories with a type, otherwise the category. For compact rows. */
     val typeLabel: String get() = itemType ?: category
+
+    /** "$25" when priced, otherwise the old free-text note. */
+    val priceLabel: String get() = priceUsd?.let { formatPrice(it) } ?: priceNote
+}
+
+/** One of my saved pieces (Bag > Pieces), with the listing embedded. */
+@Serializable
+data class SavedListing(
+    @SerialName("user_id") val userId: String,
+    @SerialName("listing_id") val listingId: String,
+    @SerialName("created_at") val createdAt: String? = null,
+    // Embedded via select(), never written.
+    val listing: Listing? = null
+)
+
+/** One of my saved studios (Bag > Studios), with the lender's public profile embedded. */
+@Serializable
+data class SavedStudio(
+    @SerialName("user_id") val userId: String,
+    @SerialName("lender_id") val lenderId: String,
+    @SerialName("created_at") val createdAt: String? = null,
+    // Embedded via select(), never written.
+    val lender: Profile? = null
+)
+
+/** Kinds of rows in public.listing_events. */
+object ListingEvents {
+    const val VIEW = "view"
+    const val SAVE = "save"
+    const val MESSAGE = "message"
 }
 
 @Serializable

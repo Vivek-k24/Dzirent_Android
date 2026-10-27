@@ -573,7 +573,7 @@ private fun PinnedListing(listing: Listing?, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                listing?.priceNote?.ifBlank { null }?.let {
+                listing?.priceLabel?.ifBlank { null }?.let {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall,

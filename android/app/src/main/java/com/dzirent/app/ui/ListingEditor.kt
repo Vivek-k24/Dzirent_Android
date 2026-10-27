@@ -40,6 +40,8 @@ import com.dzirent.app.data.PublishStepException
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.parseDateRange
+import com.dzirent.app.util.parsePrice
+import com.dzirent.app.util.priceInputText
 import com.dzirent.app.util.validateMeasurements
 import kotlinx.coroutines.launch
 import java.io.File
@@ -47,6 +49,7 @@ import java.util.UUID
 
 const val MAX_PHOTOS = 6
 private const val DEPOSIT_NOTE_MAX = 120
+private const val PRICE_NOTE_MAX = 60
 private const val NO_LOCATION_TO_PUBLISH =
     "Set your location before publishing. Listings show your approximate area (about 1 km), never your exact address."
 
@@ -149,6 +152,8 @@ private fun ListingEditorForm(
     val isAccessory = category == Categories.ACCESSORIES
     var sizeLabel by rememberSaveable { mutableStateOf(original?.sizeLabel.orEmpty()) }
     var description by rememberSaveable { mutableStateOf(original?.description.orEmpty()) }
+    var priceText by rememberSaveable { mutableStateOf(priceInputText(original?.priceUsd)) }
+    var showPriceError by remember { mutableStateOf(false) }
     var priceNote by rememberSaveable { mutableStateOf(original?.priceNote.orEmpty()) }
     var retailValueText by rememberSaveable { mutableStateOf(original?.retailValue?.let { formatNumber(it) }.orEmpty()) }
     var depositNote by rememberSaveable { mutableStateOf(original?.depositNote.orEmpty()) }
@@ -176,8 +181,11 @@ private fun ListingEditorForm(
             return "Choose an item type for Accessories."
         }
         if (sizeLabel.isBlank()) return "Please enter a size."
-        if (priceNote.isBlank()) return "Please enter a price note."
-        if (priceNote.trim().length > 60) return "Price note can be up to 60 characters."
+        if (parsePrice(priceText) == null) {
+            showPriceError = true
+            return "Enter a price above \$0, like 25 or 25.50."
+        }
+        if (priceNote.trim().length > PRICE_NOTE_MAX) return "Price details can be up to $PRICE_NOTE_MAX characters."
         if (description.trim().length > 1000) return "Description can be up to 1000 characters."
         if (retailValueText.isNotBlank() && (retailValueText.toDoubleOrNull() ?: 0.0) <= 0.0) {
             return "Retail value must be a number above 0, or leave it empty."
@@ -213,6 +221,7 @@ private fun ListingEditorForm(
                 itemType = if (isAccessory) itemType else null,
                 sizeLabel = sizeLabel.trim(),
                 description = description.trim(),
+                priceUsd = parsePrice(priceText),
                 priceNote = priceNote.trim(),
                 retailValue = retailValueText.toDoubleOrNull(),
                 depositNote = depositNote.trim().ifBlank { null },
@@ -370,9 +379,26 @@ private fun ListingEditorForm(
         Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedTextField(
+            value = priceText,
+            onValueChange = { input ->
+                priceText = input.filter { it.isDigit() || it == '.' }
+                showPriceError = false
+            },
+            label = { Text("Price (\$)") },
+            prefix = { Text("\$") },
+            supportingText = { Text(if (showPriceError) "Required: a price above \$0." else "Per rental") },
+            isError = showPriceError,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        OutlinedTextField(
             value = priceNote,
-            onValueChange = { if (it.length <= 60) priceNote = it },
-            label = { Text("Price Note (e.g. \$25/day or Trade)") },
+            onValueChange = { if (it.length <= PRICE_NOTE_MAX) priceNote = it },
+            label = { Text("Price details - optional") },
+            placeholder = { Text("e.g. for 3 days, cleaning included") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
