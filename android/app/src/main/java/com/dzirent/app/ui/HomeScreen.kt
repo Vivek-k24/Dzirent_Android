@@ -20,10 +20,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.dzirent.app.data.model.Listing
 import com.dzirent.app.data.model.Profile
 import com.dzirent.app.ui.theme.DzirentAccent
@@ -158,11 +158,15 @@ private fun HomeTopBar(profile: Profile, onAvatar: () -> Unit, onLocation: () ->
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
+            // A logo, so it keeps its size with large fonts instead of running into the location.
+            val density = LocalDensity.current
             Text(
                 text = "DZIRENT",
                 style = MaterialTheme.typography.titleMedium,
+                fontSize = with(density) { 16.dp.toSp() },
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 3.sp
+                letterSpacing = with(density) { 3.dp.toSp() },
+                maxLines = 1
             )
         }
         Row(
@@ -197,12 +201,14 @@ private fun DateBar(text: String, onClick: () -> Unit) {
             Surface(
                 onClick = onClick,
                 shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.guideTarget(GuideTarget.DATE_CHIP)
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
+                // On the visible chip, not the larger touch target around it.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    modifier = Modifier
+                        .guideTarget(GuideTarget.DATE_CHIP)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))

@@ -59,10 +59,12 @@ fun WelcomeDialog(
     onLater: () -> Unit
 ) {
     Dialog(onDismissRequest = onLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // surfaceBright: white in light mode, a lighter grey than the app in dark mode.
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceBright,
             modifier = Modifier
+                .systemBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 24.dp)
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()

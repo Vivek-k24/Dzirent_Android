@@ -88,12 +88,15 @@ fun GuideOverlay(steps: List<GuideStep>, targets: GuideTargets, onFinish: () -> 
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawBehind {
                 drawRect(ScrimColor)
-                if (hole != null) {
+                // Kept on screen; a pill or circle, so round buttons get a round cutout.
+                val cut = hole?.intersect(Rect(Offset.Zero, size))
+                if (cut != null && !cut.isEmpty) {
+                    val radius = minOf(cut.width, cut.height) / 2
                     drawRoundRect(
                         color = Color.Transparent,
-                        topLeft = hole.topLeft,
-                        size = hole.size,
-                        cornerRadius = CornerRadius(12.dp.toPx()),
+                        topLeft = cut.topLeft,
+                        size = cut.size,
+                        cornerRadius = CornerRadius(radius),
                         blendMode = BlendMode.Clear
                     )
                 }
@@ -160,7 +163,7 @@ private fun GuideBubble(
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceBright,
         shadowElevation = 8.dp
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -185,7 +188,7 @@ private fun GuideBubble(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(if (i == stepIndex) DzirentAccent else MaterialTheme.colorScheme.outlineVariant)
+                            .background(if (i == stepIndex) DzirentAccent else MaterialTheme.colorScheme.outline)
                     )
                 }
             }

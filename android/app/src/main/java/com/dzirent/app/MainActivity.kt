@@ -276,11 +276,15 @@ fun MainAppScaffold(
         navController.navigate(route)
     }
 
-    /** The guide points at Home's date chip and avatar, so it always runs on Home. */
+    /**
+     * The guide points at Home's date chip and avatar, so it always runs on Home. Home is
+     * always at the bottom of the back stack; popping to it (rather than opening the Home
+     * tab, which restores screens like Settings opened from it) shows Home itself.
+     */
     fun startGuide() {
         showWelcome = false
         closeDrawer()
-        if (!onHome) openTab(TabHome.route)
+        if (!onHome) navController.popBackStack(TabHome.route, inclusive = false)
         currentTab = TabHome.route
         guideActive = true
     }
