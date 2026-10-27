@@ -52,6 +52,23 @@ val EASE_BY_CATEGORY: Map<String, Map<BodyMeasurement, Ease>> = mapOf(
     )
 )
 
+/** Ease tables: category -> body part -> allowed garment minus body. */
+typealias EaseTable = Map<String, Map<BodyMeasurement, Ease>>
+
+/**
+ * Ease tables per "I'm a" choice, so men's and women's allowances can differ.
+ * OWNER TO CONFIRM: both use the same values ([EASE_BY_CATEGORY]) until then.
+ * With no choice, [EASE_BY_CATEGORY] is used.
+ */
+val EASE_BY_PROFILE: Map<FitProfile, EaseTable> = mapOf(
+    FitProfile.MAN to EASE_BY_CATEGORY,
+    FitProfile.WOMAN to EASE_BY_CATEGORY
+)
+
+/** The ease table for [profile] ("I'm a"), or the shared one when there is no choice. */
+fun easeTableFor(profile: FitProfile?, tables: Map<FitProfile, EaseTable> = EASE_BY_PROFILE): EaseTable =
+    profile?.let { tables[it] } ?: EASE_BY_CATEGORY
+
 /**
  * The body measurement a listing measurement label refers to, or null if it isn't one the
  * fit rule uses: "Chest", "Bust (flat)", "Chest/Bust", "Pit to pit" -> chest; "Waist";
@@ -81,10 +98,18 @@ fun garmentCm(measurement: ListingMeasurement, part: BodyMeasurement): Double {
 /** True if the renter has at least one measurement the fit rule can use. */
 fun hasFitMeasurements(body: PrivateProfile): Boolean = FIT_PARTS.any { body.bodyCm(it) != null }
 
-/** Distinct body parts where this listing's measurements are within the ease range. */
-fun fitMatches(listing: Listing, body: PrivateProfile): Set<BodyMeasurement> {
+/**
+ * Distinct body parts where this listing's measurements are within the ease range, using
+ * the ease table for the renter's "I'm a" choice ([PrivateProfile.fit]).
+ */
+fun fitMatches(
+    listing: Listing,
+    body: PrivateProfile,
+    tables: Map<FitProfile, EaseTable> = EASE_BY_PROFILE
+): Set<BodyMeasurement> {
     if (listing.category == Categories.ACCESSORIES) return emptySet()
-    val ease = EASE_BY_CATEGORY[listing.category] ?: EASE_BY_CATEGORY.getValue("Everyday")
+    val table = easeTableFor(body.fit, tables)
+    val ease = table[listing.category] ?: table["Everyday"] ?: return emptySet()
     return listing.measurements.mapNotNull { measurement ->
         val part = bodyPartForLabel(measurement.label) ?: return@mapNotNull null
         val bodyCm = body.bodyCm(part) ?: return@mapNotNull null
@@ -95,4 +120,8 @@ fun fitMatches(listing: Listing, body: PrivateProfile): Set<BodyMeasurement> {
 }
 
 /** "Likely to fit you": at least [FIT_MIN_MATCHES] mapped measurements within range. */
-fun isLikelyFit(listing: Listing, body: PrivateProfile): Boolean = fitMatches(listing, body).size >= FIT_MIN_MATCHES
+fun isLikelyFit(
+    listing: Listing,
+    body: PrivateProfile,
+    tables: Map<FitProfile, EaseTable> = EASE_BY_PROFILE
+): Boolean = fitMatches(listing, body, tables).size >= FIT_MIN_MATCHES

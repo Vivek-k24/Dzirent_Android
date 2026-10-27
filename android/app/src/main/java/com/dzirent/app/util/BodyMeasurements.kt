@@ -5,14 +5,35 @@ import java.math.RoundingMode
 
 const val CM_PER_INCH = 2.54
 
-/** A renter's body measurement, stored in centimeters in profiles.<column>. */
+/**
+ * "I'm a" on My measurements, stored as private_profiles.fit_profile. Optional and used only
+ * for fit (the Chest / Bust wording and the ease allowances), never to hide listings.
+ */
+enum class FitProfile(val dbValue: String, val label: String) {
+    MAN("man", "Man"),
+    WOMAN("woman", "Woman");
+
+    companion object {
+        fun fromDb(value: String?): FitProfile? = entries.firstOrNull { it.dbValue == value }
+    }
+}
+
+/** A renter's body measurement, stored in centimeters in private_profiles.<column>. */
 enum class BodyMeasurement(val label: String, val column: String, val howTo: String) {
     CHEST("Chest", "chest_cm", "Around the fullest part of your chest, under your arms."),
     WAIST("Waist", "waist_cm", "Around your natural waist, the narrowest part, above the belly button."),
     HIPS("Hips", "hips_cm", "Around the fullest part of your hips, feet together."),
     SHOULDER("Shoulder", "shoulder_cm", "Across your back, from one shoulder tip to the other."),
     HEIGHT("Height", "height_cm", "Standing straight against a wall, without shoes."),
-    INSEAM("Inseam", "inseam_cm", "From the top of your inner thigh down to your ankle.")
+    INSEAM("Inseam", "inseam_cm", "From the top of your inner thigh down to your ankle.");
+
+    /** "Bust" instead of "Chest" for Woman; everything else (and no choice) keeps [label]. */
+    fun labelFor(profile: FitProfile?): String =
+        if (this == CHEST && profile == FitProfile.WOMAN) "Bust" else label
+
+    /** The how-to line, saying "bust" for Woman. */
+    fun howToFor(profile: FitProfile?): String =
+        if (this == CHEST && profile == FitProfile.WOMAN) "Around the fullest part of your bust, under your arms." else howTo
 }
 
 /** Matches the profiles_*_cm checks: above 0 and below 300 cm. */

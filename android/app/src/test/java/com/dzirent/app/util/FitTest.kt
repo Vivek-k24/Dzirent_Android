@@ -94,6 +94,41 @@ class FitTest {
     }
 
     @Test
+    fun fitProfileIsReadFromThePrivateProfile() {
+        assertEquals(FitProfile.MAN, PrivateProfile(userId = "me", fitProfile = "man").fit)
+        assertEquals(FitProfile.WOMAN, PrivateProfile(userId = "me", fitProfile = "woman").fit)
+        assertNull(PrivateProfile(userId = "me").fit)
+        assertNull(PrivateProfile(userId = "me", fitProfile = "other").fit)
+    }
+
+    @Test
+    fun eachProfileGetsItsOwnEaseTable() {
+        assertEquals(EASE_BY_PROFILE.getValue(FitProfile.MAN), easeTableFor(FitProfile.MAN))
+        assertEquals(EASE_BY_PROFILE.getValue(FitProfile.WOMAN), easeTableFor(FitProfile.WOMAN))
+        assertEquals(EASE_BY_CATEGORY, easeTableFor(null))
+    }
+
+    @Test
+    fun fitRuleUsesTheRenterProfilesTable() {
+        // Made-up tables that disagree, to prove which one is used.
+        val tight = mapOf("Everyday" to mapOf(BodyMeasurement.CHEST to Ease(0.0, 1.0), BodyMeasurement.WAIST to Ease(0.0, 1.0)))
+        val loose = mapOf("Everyday" to mapOf(BodyMeasurement.CHEST to Ease(0.0, 20.0), BodyMeasurement.WAIST to Ease(0.0, 20.0)))
+        val tables = mapOf(FitProfile.MAN to tight, FitProfile.WOMAN to loose)
+        // Chest +6, waist +8.
+        val shirt = listing("Everyday", m("Chest (flat)", 48.0), m("Waist (flat)", 40.0))
+        assertFalse(isLikelyFit(shirt, body.copy(fitProfile = "man"), tables))
+        assertTrue(isLikelyFit(shirt, body.copy(fitProfile = "woman"), tables))
+    }
+
+    @Test
+    fun manAndWomanShareValuesUntilTheOwnerConfirms() {
+        val shirt = listing("Everyday", m("Chest (flat)", 48.0), m("Waist (flat)", 40.0))
+        assertTrue(isLikelyFit(shirt, body.copy(fitProfile = "man")))
+        assertTrue(isLikelyFit(shirt, body.copy(fitProfile = "woman")))
+        assertTrue(isLikelyFit(shirt, body))
+    }
+
+    @Test
     fun outerwearAllowsMoreEase() {
         // Chest +20 and shoulder +2: fine for a coat, too loose (chest) for a party dress.
         val coat = listing("Outerwear", m("Chest", 110.0), m("Shoulder", 42.0))
