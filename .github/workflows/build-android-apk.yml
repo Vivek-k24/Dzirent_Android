@@ -1,4 +1,4 @@
-name: Build and publish signed Android release APK
+name: Build and publish signed Android release (APK + AAB)
 
 on:
   push:
@@ -36,8 +36,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -62,15 +62,17 @@ jobs:
           fi
           printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > android/local.properties
 
-      - name: Build unsigned release APK (not debug)
+      - name: Build unsigned release APK and app bundle (not debug)
         working-directory: android
         run: |
           # The checked-in daemon config pins a JetBrains JDK 21 only available
           # locally. Gradle and the Android project build with JDK 17 in CI.
           rm -f gradle/gradle-daemon-jvm.properties
-          bash ./gradlew --no-daemon :app:assembleRelease
+          # versionCode comes from GITHUB_RUN_NUMBER (see app/build.gradle.kts).
+          echo "versionCode: $GITHUB_RUN_NUMBER"
+          bash ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
 
-      - name: Prepare release APK signing key
+      - name: Prepare release signing key
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
           RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
@@ -94,7 +96,7 @@ jobs:
       - name: Zipalign, sign and verify release APK
         run: |
           set -euo pipefail
-          TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           UNSIGNED=android/app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$UNSIGNED"
           "$TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/dzirent-aligned.apk"
@@ -110,11 +112,36 @@ jobs:
           sha256sum Dzirent-android03-release.apk
           ls -lh Dzirent-android03-release.apk
 
+      - name: Sign and verify release app bundle
+        run: |
+          set -euo pipefail
+          # Same permanent key as the APK. On Google Play it is the upload key.
+          UNSIGNED=android/app/build/outputs/bundle/release/app-release.aab
+          test -s "$UNSIGNED"
+          cp "$UNSIGNED" Dzirent-android03-release.aab
+          jarsigner \
+            -keystore "$DZIRENT_KEYSTORE" \
+            -storepass:env DZIRENT_STORE_PASSWORD \
+            -keypass:env DZIRENT_KEY_PASSWORD \
+            -sigalg SHA256withRSA \
+            -digestalg SHA-256 \
+            Dzirent-android03-release.aab \
+            "$DZIRENT_KEY_ALIAS"
+          # -strict would fail on the self-signed certificate, and plain -verify also
+          # exits 0 for an unsigned file, so check its output instead.
+          jarsigner -verify Dzirent-android03-release.aab | tee "$RUNNER_TEMP/aab-verify.txt"
+          grep -qx "jar verified." "$RUNNER_TEMP/aab-verify.txt"
+          keytool -printcert -jarfile Dzirent-android03-release.aab
+          sha256sum Dzirent-android03-release.aab
+          ls -lh Dzirent-android03-release.aab
+
       - name: Upload GitHub Actions backup
         uses: actions/upload-artifact@v4
         with:
           name: Dzirent-android03-release
-          path: Dzirent-android03-release.apk
+          path: |
+            Dzirent-android03-release.apk
+            Dzirent-android03-release.aab
           if-no-files-found: error
           retention-days: 30
 
@@ -128,6 +155,9 @@ jobs:
           Signed Android release APK from branch android03 (not a debug APK).
           Install directly on Android 8.0 or newer.
 
+          The .aab is the same build as an Android App Bundle for Google Play
+          (versionCode = this build number). Phones cannot install it directly.
+
           Note: This is an installable distribution, not a claim that backend
           integration is deployed or verified. The checked-in app depends on
           Supabase build-time configuration. If the repository has no
@@ -136,9 +166,35 @@ jobs:
           configure a permanent signing keystore and the four corresponding
           ANDROID_RELEASE_* secrets.
           EOF
-          gh release create "$TAG" Dzirent-android03-release.apk \
+          gh release create "$TAG" Dzirent-android03-release.apk Dzirent-android03-release.aab \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Dzirent Android signed APK — build $GITHUB_RUN_NUMBER" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --latest
+
+      # Secrets cannot be used in a step's `if:`, so this step exposes only whether it is set.
+      - name: Check for Google Play service account
+        id: play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [[ -n "$PLAY_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PLAY_SERVICE_ACCOUNT_JSON is not set; skipping the Google Play upload. See docs/PLAY_INTERNAL_TESTING.md."
+          fi
+
+      - name: Upload app bundle to Google Play internal testing
+        if: steps.play.outputs.configured == 'true'
+        # v1.1.5, pinned to a commit because this step receives the service account key.
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.dzirent.app
+          releaseFiles: Dzirent-android03-release.aab
+          track: internal
+          # "completed" rolls out to internal testers at once. Set the repository variable
+          # PLAY_RELEASE_STATUS to "draft" while Play still treats the app as a draft app.
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
