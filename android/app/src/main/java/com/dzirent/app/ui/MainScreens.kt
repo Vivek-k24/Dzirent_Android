@@ -97,7 +97,8 @@ fun ListingDetailScreen(
     currentUserId: String,
     onBack: () -> Unit,
     onEdit: (listingId: String) -> Unit,
-    onMessageLender: (listingId: String, lenderId: String) -> Unit
+    onMessageLender: (listingId: String, lenderId: String) -> Unit,
+    onOpenStudio: (lenderId: String) -> Unit
 ) {
     var uiState by remember { mutableStateOf<UiState<Listing>>(UiState.Loading) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -246,21 +247,28 @@ fun ListingDetailScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                    // The lender's name opens their studio page.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onOpenStudio(listing.lenderId) }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Avatar(name = listing.lender?.displayName.orEmpty(), size = 28.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = listOfNotNull(
                                 listing.lender?.displayName?.ifBlank { null } ?: "Lender",
                                 (listing.lender?.city?.ifBlank { null } ?: listing.city.ifBlank { null })
                             ).joinToString(" · "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.outline
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "Open studio",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
@@ -880,7 +888,8 @@ fun ProfileScreen(
     profile: Profile,
     onProfileUpdated: (Profile) -> Unit,
     onBack: () -> Unit,
-    onOpenMeasurements: () -> Unit
+    onOpenMeasurements: () -> Unit,
+    onOpenMyStudio: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(true) }
@@ -1045,6 +1054,16 @@ fun ProfileScreen(
                 modifier = Modifier.clickable { onOpenMeasurements() }
             )
             HorizontalDivider()
+            if (Roles.canLend(profile.role)) {
+                ListItem(
+                    headlineContent = { Text("My studio") },
+                    supportingContent = { Text(profile.studioHandle?.let { "@$it" } ?: "Name, handle, bio and style tags") },
+                    leadingContent = { Icon(Icons.Default.Storefront, contentDescription = null) },
+                    trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                    modifier = Modifier.clickable { onOpenMyStudio() }
+                )
+                HorizontalDivider()
+            }
         }
     }
 }

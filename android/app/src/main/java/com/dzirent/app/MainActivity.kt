@@ -1,5 +1,6 @@
 package com.dzirent.app
 
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -20,10 +21,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.Profile
 import com.dzirent.app.data.model.Roles
@@ -32,6 +35,7 @@ import com.dzirent.app.ui.*
 import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.ui.theme.DzirentTheme
 import com.dzirent.app.util.HomeRow
+import com.dzirent.app.util.datesQuestion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -211,7 +215,28 @@ fun MainAppScaffold(
         }
     }
 
-    fun openChat(conversationId: String) = navController.navigate("chat/$conversationId")
+    fun openChat(conversationId: String, draft: String? = null) =
+        navController.navigate("chat/$conversationId" + (draft?.let { "?draft=${Uri.encode(it)}" } ?: ""))
+
+    /** Opens the chat about a listing (creating it if needed), optionally with a draft message. */
+    fun startChat(listingId: String, lenderId: String, draft: String? = null) {
+        scope.launch {
+            try {
+                val conversation = repository.getOrCreateConversation(
+                    listingId = listingId,
+                    renterId = profile.id,
+                    lenderId = lenderId
+                )
+                openChat(conversation.id, draft)
+            } catch (e: Exception) {
+                Toast.makeText(
+                    context,
+                    e.userMessage("Couldn't open the chat. Please try again."),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
 
     fun closeDrawer() {
         scope.launch { drawerState.close() }
@@ -284,7 +309,7 @@ fun MainAppScaffold(
                         onOpenSidebar = { scope.launch { drawerState.open() } },
                         onSetLocation = { showLocationSetup = true },
                         onOpenListing = { listingId -> navController.navigate("detail/$listingId") },
-                        onOpenStudio = null,
+                        onOpenStudio = { lenderId -> navController.navigate("studio/$lenderId") },
                         onSeeAll = { row -> navController.navigate("seeall/${row.name}") },
                         onOpenMeasurements = { navController.navigate("measurements") }
                     )
@@ -314,25 +339,23 @@ fun MainAppScaffold(
                         currentUserId = profile.id,
                         onBack = { navController.popBackStack() },
                         onEdit = { id -> navController.navigate("edit/$id") },
-                        onMessageLender = { targetListingId, lenderId ->
-                            // Create the conversation (or reuse the existing one), then open it.
-                            scope.launch {
-                                try {
-                                    val conversation = repository.getOrCreateConversation(
-                                        listingId = targetListingId,
-                                        renterId = profile.id,
-                                        lenderId = lenderId
-                                    )
-                                    openChat(conversation.id)
-                                } catch (e: Exception) {
-                                    Toast.makeText(
-                                        context,
-                                        e.userMessage("Couldn't open the chat. Please try again."),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        }
+                        onMessageLender = { targetListingId, lenderId -> startChat(targetListingId, lenderId) },
+                        onOpenStudio = { lenderId -> navController.navigate("studio/$lenderId") }
+                    )
+                }
+                composable("studio/{lenderId}") { backStackEntry ->
+                    val lenderId = backStackEntry.arguments?.getString("lenderId") ?: ""
+                    StudioScreen(
+                        repository = repository,
+                        lenderId = lenderId,
+                        currentUserId = profile.id,
+                        onBack = { navController.popBackStack() },
+                        onOpenListing = { id -> navController.navigate("detail/$id") },
+                        onMessageAbout = { piece ->
+                            startChat(piece.id, piece.lenderId, datesQuestion(piece.title, session.dates))
+                        },
+                        // "From studios you saved" changes.
+                        onSavedChanged = { session.invalidate() }
                     )
                 }
                 composable("inbox") {
@@ -343,14 +366,18 @@ fun MainAppScaffold(
                         onNewsChanged = { inboxHasNews = it }
                     )
                 }
-                composable("chat/{conversationId}") { backStackEntry ->
+                composable(
+                    "chat/{conversationId}?draft={draft}",
+                    arguments = listOf(navArgument("draft") { type = NavType.StringType; nullable = true; defaultValue = null })
+                ) { backStackEntry ->
                     val conversationId = backStackEntry.arguments?.getString("conversationId") ?: ""
                     ChatScreen(
                         repository = repository,
                         conversationId = conversationId,
                         currentUserId = profile.id,
                         onBack = { navController.popBackStack() },
-                        onOpenListing = { id -> navController.navigate("detail/$id") }
+                        onOpenListing = { id -> navController.navigate("detail/$id") },
+                        initialDraft = backStackEntry.arguments?.getString("draft")
                     )
                 }
                 composable("list") {
@@ -407,7 +434,19 @@ fun MainAppScaffold(
                         profile = profile,
                         onProfileUpdated = { updated -> profile = updated },
                         onBack = { navController.popBackStack() },
-                        onOpenMeasurements = { navController.navigate("measurements") }
+                        onOpenMeasurements = { navController.navigate("measurements") },
+                        onOpenMyStudio = { navController.navigate("mystudio") }
+                    )
+                }
+                composable("mystudio") {
+                    MyStudioScreen(
+                        repository = repository,
+                        profile = profile,
+                        onBack = { navController.popBackStack() },
+                        onSaved = { updated ->
+                            profile = updated
+                            navController.popBackStack()
+                        }
                     )
                 }
                 composable("settings") {

@@ -253,7 +253,9 @@ fun ChatScreen(
     conversationId: String,
     currentUserId: String,
     onBack: () -> Unit,
-    onOpenListing: (listingId: String) -> Unit
+    onOpenListing: (listingId: String) -> Unit,
+    /** Text to start the message box with, e.g. a question about dates. */
+    initialDraft: String? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -266,7 +268,7 @@ fun ChatScreen(
     var myOutcome by remember { mutableStateOf<RentalOutcome?>(null) }
     var liveUnavailable by remember { mutableStateOf(false) }
 
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(initialDraft.orEmpty()) }
     var isSending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }

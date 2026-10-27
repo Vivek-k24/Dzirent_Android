@@ -143,6 +143,63 @@ grant execute on function public.mark_conversation_read(uuid) to authenticated;
 revoke all on function public.mark_activity_seen() from public, anon;
 grant execute on function public.mark_activity_seen() to authenticated;
 
+-- 7) STUDIO PAGE: what lenders set in Profile > My studio. All optional; the page shows
+-- only what is filled in. Public like the rest of profiles.
+alter table public.profiles add column if not exists studio_name text
+  constraint profiles_studio_name_length check (char_length(studio_name) between 1 and 40);
+-- @handle: 3-30 lowercase letters, numbers, dots and underscores; unique.
+alter table public.profiles add column if not exists studio_handle text
+  constraint profiles_studio_handle_format check (studio_handle ~ '^[a-z0-9._]{3,30}$');
+create unique index if not exists profiles_studio_handle_key on public.profiles (studio_handle);
+alter table public.profiles add column if not exists studio_bio text
+  constraint profiles_studio_bio_length check (char_length(studio_bio) <= 200);
+-- Up to 5 tags from the fixed list (same list as StyleTags.ALL in the app).
+alter table public.profiles add column if not exists style_tags text[] not null default '{}'
+  constraint profiles_style_tags_check check (
+    cardinality(style_tags) <= 5
+    and style_tags <@ array['Minimalist','Classic','Vintage','Streetwear','Boho','Glam','Traditional',
+                            'Workwear','Designer','Plus size','Petite','Maternity']::text[]
+  );
+alter table public.profiles add column if not exists pickup_area text
+  constraint profiles_pickup_area_length check (char_length(pickup_area) <= 60);
+
+-- "Rented N times": this lender's rentals marked active or returned (never cancelled).
+-- rentals is private to the two participants, so only the number is exposed.
+create or replace function public.studio_rental_count(p_lender_id uuid) returns integer
+language sql stable security definer set search_path = '' as $$
+  select count(*)::int from public.rentals r
+  where r.lender_id = p_lender_id and r.status in ('active', 'returned');
+$$;
+
+-- "Typical reply time": median minutes from a renter's first message to the lender's first
+-- reply after it, over chats started in the last 90 days. NULL with fewer than 3 replies,
+-- so one slow or fast chat doesn't define a studio. Only the number is exposed.
+create or replace function public.studio_reply_minutes(p_lender_id uuid) returns integer
+language sql stable security definer set search_path = '' as $$
+  with asked as (
+    select c.id,
+           (select min(m.created_at) from public.messages m
+            where m.conversation_id = c.id and m.sender_id = c.renter_id) as asked_at
+    from public.conversations c
+    where c.lender_id = p_lender_id and c.created_at > now() - interval '90 days'
+  ), replies as (
+    select extract(epoch from (
+             (select min(m.created_at) from public.messages m
+              where m.conversation_id = a.id and m.sender_id = p_lender_id and m.created_at > a.asked_at)
+             - a.asked_at)) / 60 as minutes
+    from asked a
+    where a.asked_at is not null
+  )
+  select case when count(minutes) >= 3
+              then round(percentile_cont(0.5) within group (order by minutes))::int end
+  from replies;
+$$;
+
+revoke all on function public.studio_rental_count(uuid) from public, anon;
+grant execute on function public.studio_rental_count(uuid) to authenticated;
+revoke all on function public.studio_reply_minutes(uuid) from public, anon;
+grant execute on function public.studio_reply_minutes(uuid) to authenticated;
+
 -- =====================================================================
 -- CHECK QUERIES (optional)
 -- =====================================================================
@@ -152,3 +209,4 @@ grant execute on function public.mark_activity_seen() to authenticated;
 --                       'private_profiles')
 --   order by 1, 2;
 -- select type, count(*) from public.listing_events group by 1;   -- as the dashboard owner
+-- select id, studio_handle, studio_name, style_tags from public.profiles where studio_handle is not null;

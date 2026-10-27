@@ -33,7 +33,9 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.ByteArrayInputStream
@@ -413,6 +415,92 @@ class DzirentRepository {
             }
         } catch (e: Exception) {
             throw fail("load listings", e)
+        }
+    }
+
+    // --- STUDIOS ---
+
+    /** A lender's studio page: public profile, active pieces, counts and whether I saved it. */
+    suspend fun getStudio(lenderId: String, userId: String): StudioPage {
+        return try {
+            val lender = postgrest.from("profiles").select { filter { eq("id", lenderId) } }.decodeSingle<Profile>()
+            val pieces = postgrest.from("listings").select(Columns.raw("*, photos:listing_photos(*)")) {
+                filter {
+                    eq("lender_id", lenderId)
+                    eq("status", "active")
+                }
+                order("created_at", Order.DESCENDING)
+            }.decodeList<Listing>().map { it.sorted() }
+            val rented = postgrest.rpc("studio_rental_count", buildJsonObject { put("p_lender_id", lenderId) })
+                .decodeAs<Int>()
+            val replyMinutes = postgrest.rpc("studio_reply_minutes", buildJsonObject { put("p_lender_id", lenderId) })
+                .decodeAsOrNull<Int>()
+            val saved = lenderId != userId && lenderId in getSavedStudioIds(userId)
+            StudioPage(lender, pieces, rented, replyMinutes, saved)
+        } catch (e: Exception) {
+            throw fail("load this studio", e)
+        }
+    }
+
+    /** Adds a studio to my Bag (saving twice is harmless). */
+    suspend fun saveStudio(userId: String, lenderId: String) {
+        try {
+            postgrest.from("saved_studios").upsert(
+                buildJsonObject {
+                    put("user_id", userId)
+                    put("lender_id", lenderId)
+                }
+            ) { ignoreDuplicates = true }
+        } catch (e: Exception) {
+            throw fail("save this studio", e)
+        }
+    }
+
+    suspend fun unsaveStudio(userId: String, lenderId: String) {
+        try {
+            postgrest.from("saved_studios").delete {
+                filter {
+                    eq("user_id", userId)
+                    eq("lender_id", lenderId)
+                }
+            }
+        } catch (e: Exception) {
+            throw fail("remove this studio", e)
+        }
+    }
+
+    /**
+     * Saves Profile > My studio. Blank text clears a field. A handle someone else has
+     * gets its own message.
+     */
+    suspend fun updateStudio(
+        userId: String,
+        name: String,
+        handle: String,
+        bio: String,
+        styleTags: List<String>,
+        pickupArea: String
+    ): Profile {
+        try {
+            postgrest.from("profiles").update(
+                buildJsonObject {
+                    put("studio_name", name.ifBlank { null })
+                    put("studio_handle", handle.ifBlank { null })
+                    put("studio_bio", bio.ifBlank { null })
+                    put("style_tags", JsonArray(styleTags.map { JsonPrimitive(it) }))
+                    put("pickup_area", pickupArea.ifBlank { null })
+                }
+            ) {
+                filter { eq("id", userId) }
+            }
+            return getCurrentProfile() ?: throw DzirentException("Couldn't load your profile. Please try again.")
+        } catch (e: Exception) {
+            val raw = e.message.orEmpty()
+            if ("profiles_studio_handle_key" in raw || "duplicate key" in raw.lowercase()) {
+                logError("save studio", e)
+                throw DzirentException("@$handle is taken. Try another handle.")
+            }
+            throw fail("save your studio", e)
         }
     }
 

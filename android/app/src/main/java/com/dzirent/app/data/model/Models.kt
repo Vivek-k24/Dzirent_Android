@@ -18,10 +18,31 @@ data class Profile(
     @SerialName("approx_lat") val approxLat: Double? = null,
     @SerialName("approx_lng") val approxLng: Double? = null,
     @SerialName("adult_confirmed") val adultConfirmed: Boolean = false,
-    @SerialName("created_at") val createdAt: String? = null
+    @SerialName("created_at") val createdAt: String? = null,
+    // Studio page, set in Profile > My studio (lenders). All optional.
+    @SerialName("studio_name") val studioName: String? = null,
+    @SerialName("studio_handle") val studioHandle: String? = null,
+    @SerialName("studio_bio") val studioBio: String? = null,
+    @SerialName("style_tags") val styleTags: List<String> = emptyList(),
+    @SerialName("pickup_area") val pickupArea: String? = null
 ) {
     val hasLocation: Boolean get() = approxLat != null && approxLng != null
+
+    /** The studio's name, falling back to the person's display name. */
+    val studioTitle: String get() = studioName?.ifBlank { null } ?: displayName.ifBlank { "Studio" }
 }
+
+/** Everything the studio page shows about one lender. */
+data class StudioPage(
+    val lender: Profile,
+    /** Active listings, newest first. */
+    val pieces: List<Listing>,
+    /** Rentals marked active or returned (studio_rental_count). */
+    val rentedCount: Int,
+    /** Median first-reply time, or null with too few chats (studio_reply_minutes). */
+    val replyMinutes: Int?,
+    val isSaved: Boolean
+)
 
 /**
  * My row of public.private_profiles: data only I can read (RLS), unlike [Profile].
