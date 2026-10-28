@@ -1,6 +1,7 @@
 package com.dzirent.app.data.model
 
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.FitProfile
 import com.dzirent.app.util.formatPrice
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -59,8 +60,12 @@ data class PrivateProfile(
     @SerialName("height_cm") val heightCm: Double? = null,
     @SerialName("inseam_cm") val inseamCm: Double? = null,
     /** When I last opened Inbox > Activity. */
-    @SerialName("activity_seen_at") val activitySeenAt: String? = null
+    @SerialName("activity_seen_at") val activitySeenAt: String? = null,
+    /** "I'm a" on My measurements: 'man', 'woman' or null. See [FitProfile]. */
+    @SerialName("fit_profile") val fitProfile: String? = null
 ) {
+    val fit: FitProfile? get() = FitProfile.fromDb(fitProfile)
+
     fun bodyCm(measurement: BodyMeasurement): Double? = when (measurement) {
         BodyMeasurement.CHEST -> chestCm
         BodyMeasurement.WAIST -> waistCm

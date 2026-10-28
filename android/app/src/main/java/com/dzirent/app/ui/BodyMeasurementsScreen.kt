@@ -16,10 +16,16 @@ import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.PrivateProfile
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.FitProfile
 import com.dzirent.app.util.bodyInputToCm
 import com.dzirent.app.util.cmToBodyInput
 import com.dzirent.app.util.isValidBodyCm
 import kotlinx.coroutines.launch
+
+private const val MEASUREMENTS_PRIVACY_NOTE =
+    "We only use your measurements to make your search easier and show pieces likely to fit " +
+        "you. They're private, so no one else can see them. If you're a lender, your listings " +
+        "only show the garment's measurements, never your body measurements."
 
 private const val HOW_TO_MEASURE =
     "Use a soft tape measure over light clothing. Stand straight, breathe normally, and keep " +
@@ -82,6 +88,8 @@ private fun MeasurementsForm(
     val scope = rememberCoroutineScope()
     // Inches by default for the US pilot; values are stored in cm either way.
     var unit by rememberSaveable { mutableStateOf("in") }
+    // "I'm a": optional, nothing preselected. Only changes the Chest/Bust wording and the fit rule.
+    var fit by rememberSaveable { mutableStateOf(saved.fit) }
     val texts = remember {
         mutableStateMapOf<BodyMeasurement, String>().apply {
             BodyMeasurement.entries.forEach { put(it, cmToBodyInput(saved.bodyCm(it), "in")) }
@@ -119,7 +127,8 @@ private fun MeasurementsForm(
             try {
                 repository.saveBodyMeasurements(
                     userId,
-                    BodyMeasurement.entries.associateWith { bodyInputToCm(texts[it].orEmpty(), unit) }
+                    BodyMeasurement.entries.associateWith { bodyInputToCm(texts[it].orEmpty(), unit) },
+                    fit
                 )
                 onSaved()
             } catch (e: Exception) {
@@ -135,8 +144,24 @@ private fun MeasurementsForm(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 8.dp)
     ) {
+        Text("I'm a", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        val fitOptions = FitProfile.entries
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            fitOptions.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = fit == option,
+                    // Tapping the chosen one again clears it, since the choice is optional.
+                    onClick = { fit = if (fit == option) null else option },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = fitOptions.size)
+                ) {
+                    Text(option.label)
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Optional. Compare them with the measurements lenders list on each piece. Only you can see them.",
+            text = MEASUREMENTS_PRIVACY_NOTE,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -165,9 +190,9 @@ private fun MeasurementsForm(
             OutlinedTextField(
                 value = texts[measurement].orEmpty(),
                 onValueChange = { input -> texts[measurement] = input.filter { it.isDigit() || it == '.' } },
-                label = { Text(measurement.label) },
+                label = { Text(measurement.labelFor(fit)) },
                 suffix = { Text(unit) },
-                supportingText = { Text(error ?: measurement.howTo) },
+                supportingText = { Text(error ?: measurement.howToFor(fit)) },
                 isError = error != null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,

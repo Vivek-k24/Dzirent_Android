@@ -9,6 +9,7 @@ import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
 import com.dzirent.app.util.ActivityItem
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.FitProfile
 import com.dzirent.app.util.buildActivity
 import com.dzirent.app.util.hasUnread
 import com.dzirent.app.util.haversineKm
@@ -282,15 +283,20 @@ class DzirentRepository {
     }
 
     /**
-     * Saves my body measurements (cm, null clears one). The upsert creates my row the
-     * first time and otherwise changes only these six columns.
+     * Saves my body measurements (cm, null clears one) and my "I'm a" choice. The upsert
+     * creates my row the first time and otherwise changes only these columns.
      */
-    suspend fun saveBodyMeasurements(userId: String, valuesCm: Map<BodyMeasurement, Double?>): PrivateProfile {
+    suspend fun saveBodyMeasurements(
+        userId: String,
+        valuesCm: Map<BodyMeasurement, Double?>,
+        fitProfile: FitProfile?
+    ): PrivateProfile {
         return try {
             postgrest.from("private_profiles").upsert(
                 buildJsonObject {
                     put("user_id", userId)
                     valuesCm.forEach { (measurement, cm) -> put(measurement.column, cm) }
+                    put("fit_profile", fitProfile?.dbValue)
                 }
             ) { select() }.decodeSingle<PrivateProfile>()
         } catch (e: Exception) {

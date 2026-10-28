@@ -1,9 +1,11 @@
 name: Build and publish signed Android release (APK + AAB)
 
+# Builds only main: work on a branch, open a pull request into main and merge it; the merge
+# is the push that builds and uploads. Run workflow (workflow_dispatch) builds by hand.
 on:
   push:
     branches:
-      - "android*"
+      - main
     paths:
       - "android/**"
       - ".github/workflows/build-android-apk.yml"
@@ -12,7 +14,7 @@ on:
 permissions:
   contents: write
 
-# One group for all branches: builds share the run-number versionCode and the Play
+# One group for main and manual runs: builds share the run-number versionCode and the Play
 # internal track, so they must finish in order.
 concurrency:
   group: android-release
