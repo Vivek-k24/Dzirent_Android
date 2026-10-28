@@ -384,13 +384,15 @@ class DzirentRepository {
     }
 
     /**
-     * Saves my body measurements (cm, null clears one) and my "I'm a" choice. The upsert
-     * creates my row the first time and otherwise changes only these columns.
+     * Saves my body measurements (cm, null clears one), my "I'm a" choice and the styles I'm
+     * interested in. The upsert creates my row the first time and otherwise changes only
+     * these columns.
      */
     suspend fun saveBodyMeasurements(
         userId: String,
         valuesCm: Map<BodyMeasurement, Double?>,
-        fitProfile: FitProfile?
+        fitProfile: FitProfile?,
+        styleInterests: List<String>
     ): PrivateProfile {
         return try {
             postgrest.from("private_profiles").upsert(
@@ -398,6 +400,7 @@ class DzirentRepository {
                     put("user_id", userId)
                     valuesCm.forEach { (measurement, cm) -> put(measurement.column, cm) }
                     put("fit_profile", fitProfile?.dbValue)
+                    put("style_interests", JsonArray(styleInterests.map { JsonPrimitive(it) }))
                 }
             ) { select() }.decodeSingle<PrivateProfile>()
         } catch (e: Exception) {
@@ -499,8 +502,37 @@ class DzirentRepository {
      * Nearby listings for Home and Search, with photos, availability, measurements and the
      * lender's public profile filled in (one batched query each).
      */
-    suspend fun getBrowseListings(lat: Double, lng: Double, radiusKm: Double): List<Listing> {
-        val listings = getNearbyListings(lat, lng, radiusKm)
+    suspend fun getBrowseListings(lat: Double, lng: Double, radiusKm: Double): List<Listing> =
+        withBrowseDetails(getNearbyListings(lat, lng, radiusKm))
+
+    /**
+     * Active listings whose title or description is close to [query] (typos included), best
+     * match first, with the same details as [getBrowseListings]. Uses search_listings_similar
+     * (007); returns nothing if that fails, since it only feeds suggestions.
+     */
+    suspend fun searchSimilarListings(query: String, limit: Int = 24): List<Listing> {
+        val found = try {
+            postgrest.rpc(
+                "search_listings_similar",
+                buildJsonObject {
+                    put("p_query", query)
+                    put("p_limit", limit)
+                }
+            ).decodeList<Listing>()
+        } catch (e: Exception) {
+            logError("search similar listings", e)
+            return emptyList()
+        }
+        return try {
+            withBrowseDetails(withPhotos(found))
+        } catch (e: Exception) {
+            logError("load similar listings", e)
+            emptyList()
+        }
+    }
+
+    /** Availability, measurements and the lender's public profile, one batched query each. */
+    private suspend fun withBrowseDetails(listings: List<Listing>): List<Listing> {
         if (listings.isEmpty()) return listings
         val ids = listings.map { it.id }
         return try {
@@ -549,7 +581,7 @@ class DzirentRepository {
         }
     }
 
-    /** Adds a studio to my Bag (saving twice is harmless). */
+    /** Adds a studio to my Saved (saving twice is harmless). */
     suspend fun saveStudio(userId: String, lenderId: String) {
         try {
             postgrest.from("saved_studios").upsert(
@@ -697,6 +729,7 @@ class DzirentRepository {
                     put("price_note", listing.priceNote)
                     put("retail_value", listing.retailValue)
                     put("deposit_note", listing.depositNote)
+                    put("listing_styles", JsonArray(listing.listingStyles.map { JsonPrimitive(it) }))
                     put("status", status)
                 }
             ) {
@@ -800,7 +833,7 @@ class DzirentRepository {
     }
 
     /**
-     * Bag > Pieces, newest first. The listing is null when it was paused or deleted
+     * Saved > Pieces, newest first. The listing is null when it was paused or deleted
      * (RLS hides other people's paused listings).
      */
     suspend fun getSavedListings(userId: String): List<SavedListing> {
@@ -810,11 +843,11 @@ class DzirentRepository {
                 order("created_at", Order.DESCENDING)
             }.decodeList<SavedListing>().map { saved -> saved.copy(listing = saved.listing?.sorted()) }
         } catch (e: Exception) {
-            throw fail("load your Bag", e)
+            throw fail("load your saved pieces", e)
         }
     }
 
-    /** Bag > Studios, newest first, with each lender's public studio details. */
+    /** Saved > Studios, newest first, with each lender's public studio details. */
     suspend fun getSavedStudios(userId: String): List<SavedStudio> {
         return try {
             postgrest.from("saved_studios").select(
@@ -826,7 +859,7 @@ class DzirentRepository {
                 order("created_at", Order.DESCENDING)
             }.decodeList<SavedStudio>()
         } catch (e: Exception) {
-            throw fail("load your Bag", e)
+            throw fail("load your saved pieces", e)
         }
     }
 

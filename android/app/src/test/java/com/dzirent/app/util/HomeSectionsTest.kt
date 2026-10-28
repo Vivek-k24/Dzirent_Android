@@ -35,6 +35,45 @@ class HomeSectionsTest {
         buildHomeSections(listings, "me", BrowseFilters(), dates, body, saved, now)
 
     @Test
+    fun forYourStyleOverlapsMyInterestsNearestFirst() {
+        val far = listing("far", km = 9.0).copy(listingStyles = listOf("South Asian", "Western formal"))
+        val near = listing("near", km = 2.0).copy(listingStyles = listOf("Western formal"))
+        val other = listing("other", km = 1.0).copy(listingStyles = listOf("African"))
+        val none = listing("none", km = 1.0)
+        val mine = listing("mine", lender = "me").copy(listingStyles = listOf("South Asian"))
+        val body = noBody.copy(styleInterests = listOf("South Asian", "Western formal"))
+        assertEquals(listOf("near", "far"), build(listOf(far, near, other, none, mine), body).forYourStyle.map { it.id })
+        // No styles picked: the row is empty, so it's hidden.
+        assertEquals(emptyList<String>(), build(listOf(far, near)).forYourStyle.map { it.id })
+    }
+
+    @Test
+    fun underFifteenDollarsNearestFirst() {
+        val cheapFar = listing("cheap-far", km = 8.0).copy(priceUsd = 10.0)
+        val cheapNear = listing("cheap-near", km = 1.0).copy(priceUsd = 14.99)
+        val fifteen = listing("fifteen").copy(priceUsd = 15.0)
+        val unpriced = listing("unpriced").copy(priceUsd = null)
+        assertEquals(listOf("cheap-near", "cheap-far"), build(listOf(cheapFar, cheapNear, fifteen, unpriced)).underPrice.map { it.id })
+    }
+
+    @Test
+    fun rowsComeInTheRightOrder() {
+        assertEquals(
+            listOf("Likely to fit you", "New near you", "For your style", "Under \$15", "From studios you saved"),
+            HomeRow.entries.map { it.title }
+        )
+    }
+
+    @Test
+    fun anyDatesIgnoresAvailability() {
+        val booked = listing("booked", available = "2026-11-10" to "2026-11-20")
+        val free = listing("free")
+        assertEquals(listOf("free"), build(listOf(booked, free)).visible.map { it.id })
+        val anyDates = buildHomeSections(listOf(booked, free), "me", BrowseFilters(), null, noBody, emptySet(), now)
+        assertEquals(setOf("booked", "free"), anyDates.visible.map { it.id }.toSet())
+    }
+
+    @Test
     fun myOwnListingsAreLeftOut() {
         val sections = build(listOf(listing("a"), listing("mine", lender = "me")))
         assertEquals(listOf("a"), sections.visible.map { it.id })

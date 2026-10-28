@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.PrivateProfile
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.FashionStyles
 import com.dzirent.app.util.FitProfile
 import com.dzirent.app.util.bodyInputToCm
 import com.dzirent.app.util.cmToBodyInput
@@ -26,6 +27,9 @@ private const val MEASUREMENTS_PRIVACY_NOTE =
     "We only use your measurements to make your search easier and show pieces likely to fit " +
         "you. They're private, so no one else can see them. If you're a lender, your listings " +
         "only show the garment's measurements, never your body measurements."
+
+private const val STYLES_PRIVACY_NOTE =
+    "Private. Only used to suggest pieces you might like; we never hide anything based on it."
 
 private const val HOW_TO_MEASURE =
     "Use a soft tape measure over light clothing. Stand straight, breathe normally, and keep " +
@@ -77,7 +81,7 @@ fun BodyMeasurementsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun MeasurementsForm(
     repository: DzirentRepository,
@@ -91,6 +95,7 @@ private fun MeasurementsForm(
     var unit by rememberSaveable { mutableStateOf(startUnit) }
     // "I'm a": optional, nothing preselected. Only changes the Chest/Bust wording and the fit rule.
     var fit by rememberSaveable { mutableStateOf(saved.fit) }
+    var styles by rememberSaveable { mutableStateOf(saved.styleInterests.filter { it in FashionStyles.ALL }) }
     val texts = remember {
         mutableStateMapOf<BodyMeasurement, String>().apply {
             BodyMeasurement.entries.forEach { put(it, cmToBodyInput(saved.bodyCm(it), unit)) }
@@ -129,7 +134,8 @@ private fun MeasurementsForm(
                 repository.saveBodyMeasurements(
                     userId,
                     BodyMeasurement.entries.associateWith { bodyInputToCm(texts[it].orEmpty(), unit) },
-                    fit
+                    fit,
+                    styles
                 )
                 onSaved()
             } catch (e: Exception) {
@@ -201,6 +207,26 @@ private fun MeasurementsForm(
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Styles you're interested in (optional)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(
+            text = STYLES_PRIVACY_NOTE,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FashionStyles.ALL.forEach { style ->
+                val selected = style in styles
+                FilterChip(
+                    selected = selected,
+                    onClick = { styles = if (selected) styles - style else styles + style },
+                    label = { Text(style) }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
 
         saveError?.let {
             Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

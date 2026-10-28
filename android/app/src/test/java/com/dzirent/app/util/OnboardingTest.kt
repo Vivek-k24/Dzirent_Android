@@ -37,7 +37,7 @@ class OnboardingTest {
     @Test
     fun guideHasFiveStepsInOrder() {
         assertEquals(
-            listOf(GuideTarget.DATE_CHIP, GuideTarget.AVATAR, GuideTarget.SEARCH, GuideTarget.CLOSET, GuideTarget.BAG),
+            listOf(GuideTarget.DATE_CHIP, GuideTarget.AVATAR, GuideTarget.SEARCH, GuideTarget.CLOSET, GuideTarget.SAVED),
             guideSteps(canLend = true).map { it.target }
         )
     }

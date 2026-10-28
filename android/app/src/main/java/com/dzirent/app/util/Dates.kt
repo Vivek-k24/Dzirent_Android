@@ -48,7 +48,7 @@ fun formatDateChip(range: DateRange): String {
 }
 
 /**
- * The dates question, worded the same everywhere one is created (Bag, studio "Message",
+ * The dates question, worded the same everywhere one is created (Saved, studio "Message",
  * the chat chip): "Is this available Oct 27 - 31?". The chat is about one piece, so "this".
  */
 fun datesQuestion(dates: DateRange): String = "Is this available ${formatDateChip(dates)}?"

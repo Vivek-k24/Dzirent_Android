@@ -75,7 +75,7 @@ fun StudioScreen(
                 uiState = UiState.Success(page.copy(isSaved = !page.isSaved))
                 onSavedChanged()
             } catch (e: Exception) {
-                Toast.makeText(context, e.userMessage("Couldn't update your Bag. Please try again."), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, e.userMessage("Couldn't update your saved studios. Please try again."), Toast.LENGTH_SHORT).show()
             }
             savingBookmark = false
         }
@@ -117,7 +117,7 @@ fun StudioScreen(
                     IconButton(onClick = { toggleSaved(page) }, enabled = !savingBookmark) {
                         Icon(
                             imageVector = if (page.isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (page.isSaved) "Remove studio from Bag" else "Save studio to Bag"
+                            contentDescription = if (page.isSaved) "Remove studio from Saved" else "Save studio"
                         )
                     }
                 }

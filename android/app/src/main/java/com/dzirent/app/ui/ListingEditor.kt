@@ -40,6 +40,7 @@ import com.dzirent.app.data.PublishStepException
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.DistanceUnit
+import com.dzirent.app.util.FashionStyles
 import com.dzirent.app.util.parseDateRange
 import com.dzirent.app.util.parsePrice
 import com.dzirent.app.util.priceInputText
@@ -149,6 +150,7 @@ private fun ListingEditorForm(
     var title by rememberSaveable { mutableStateOf(original?.title.orEmpty()) }
     var category by rememberSaveable { mutableStateOf(original?.category ?: Categories.ALL.first()) }
     var itemType by rememberSaveable { mutableStateOf(original?.itemType) }
+    var styles by rememberSaveable { mutableStateOf(original?.listingStyles.orEmpty().filter { it in FashionStyles.ALL }) }
     var showItemTypeError by remember { mutableStateOf(false) }
     val isAccessory = category == Categories.ACCESSORIES
     var sizeLabel by rememberSaveable { mutableStateOf(original?.sizeLabel.orEmpty()) }
@@ -223,6 +225,7 @@ private fun ListingEditorForm(
                 title = title.trim(),
                 category = category,
                 itemType = if (isAccessory) itemType else null,
+                listingStyles = styles,
                 sizeLabel = sizeLabel.trim(),
                 description = description.trim(),
                 priceUsd = parsePrice(priceText),
@@ -373,6 +376,9 @@ private fun ListingEditorForm(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
+        StylePicker(selected = styles, onChange = { styles = it })
+        Spacer(modifier = Modifier.height(12.dp))
+
         OutlinedTextField(
             value = sizeLabel,
             onValueChange = { sizeLabel = it },
@@ -491,6 +497,30 @@ private fun PublishFailedView(
             Text("Retry")
         }
         TextButton(onClick = onBackToEdit) { Text("Back to edit") }
+    }
+}
+
+/** "Style (optional)": up to [FashionStyles.LISTING_MAX], only used to suggest the piece. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StylePicker(selected: List<String>, onChange: (List<String>) -> Unit) {
+    Text("Style (optional)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    Text(
+        text = "Up to ${FashionStyles.LISTING_MAX}. Helps show your piece to people who like this style.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FashionStyles.ALL.forEach { style ->
+            val isSelected = style in selected
+            FilterChip(
+                selected = isSelected,
+                onClick = { onChange(if (isSelected) selected - style else selected + style) },
+                enabled = isSelected || selected.size < FashionStyles.LISTING_MAX,
+                label = { Text(style) }
+            )
+        }
     }
 }
 

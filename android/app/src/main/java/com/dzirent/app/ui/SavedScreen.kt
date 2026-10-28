@@ -28,14 +28,14 @@ import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.formatPrice
 import kotlinx.coroutines.launch
 
-private data class BagData(val pieces: List<SavedListing>, val studios: List<SavedStudio>)
+private data class SavedData(val pieces: List<SavedListing>, val studios: List<SavedStudio>)
 
 /**
- * Bag: saved Pieces (newest first, each with "Message about dates") and saved Studios.
+ * Saved: saved Pieces (newest first, each with "Message about dates") and saved Studios.
  * Remove by swiping left or with the X.
  */
 @Composable
-fun BagScreen(
+fun SavedScreen(
     repository: DzirentRepository,
     currentUserId: String,
     onOpenListing: (String) -> Unit,
@@ -46,22 +46,22 @@ fun BagScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var uiState by remember { mutableStateOf<UiState<BagData>>(UiState.Loading) }
+    var uiState by remember { mutableStateOf<UiState<SavedData>>(UiState.Loading) }
     var studiosTab by rememberSaveable { mutableStateOf(false) }
 
     fun load() {
         scope.launch {
             uiState = UiState.Loading
             uiState = try {
-                UiState.Success(BagData(repository.getSavedListings(currentUserId), repository.getSavedStudios(currentUserId)))
+                UiState.Success(SavedData(repository.getSavedListings(currentUserId), repository.getSavedStudios(currentUserId)))
             } catch (e: Exception) {
-                UiState.Error(e.userMessage("Couldn't load your Bag. Please try again."))
+                UiState.Error(e.userMessage("Couldn't load your saved pieces. Please try again."))
             }
         }
     }
 
     /** Removes at once and puts the row back if the server says no. */
-    fun update(transform: (BagData) -> BagData, undo: (BagData) -> BagData, call: suspend () -> Unit) {
+    fun update(transform: (SavedData) -> SavedData, undo: (SavedData) -> SavedData, call: suspend () -> Unit) {
         val data = (uiState as? UiState.Success)?.data ?: return
         uiState = UiState.Success(transform(data))
         scope.launch {
@@ -92,13 +92,13 @@ fun BagScreen(
     LaunchedEffect(currentUserId) { load() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        ScreenTitle("Bag")
+        ScreenTitle("Saved")
         DzirentTabRow(selectedTabIndex = if (studiosTab) 1 else 0) {
             Tab(selected = !studiosTab, onClick = { studiosTab = false }, text = { Text("Pieces") })
             Tab(selected = studiosTab, onClick = { studiosTab = true }, text = { Text("Studios") })
         }
         when (val state = uiState) {
-            is UiState.Loading -> LoadingView(message = "Loading your Bag...")
+            is UiState.Loading -> LoadingView(message = "Loading your saved pieces...")
             is UiState.Error -> ErrorView(message = state.message, onRetry = { load() })
             is UiState.Success -> if (!studiosTab) {
                 if (state.data.pieces.isEmpty()) {
@@ -216,7 +216,7 @@ private fun SavedPieceRow(saved: SavedListing, onOpen: () -> Unit, onMessage: ()
                 }
             }
             IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Close, contentDescription = "Remove from Bag")
+                Icon(Icons.Default.Close, contentDescription = "Remove from Saved")
             }
         }
     }
@@ -245,7 +245,7 @@ private fun SavedStudioRow(saved: SavedStudio, onOpen: () -> Unit, onRemove: () 
                 }
             }
             IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Close, contentDescription = "Remove from Bag")
+                Icon(Icons.Default.Close, contentDescription = "Remove from Saved")
             }
         }
     }

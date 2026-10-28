@@ -19,22 +19,26 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.Listing
 import com.dzirent.app.data.model.Profile
+import com.dzirent.app.R
 import com.dzirent.app.ui.theme.DzirentAccent
-import com.dzirent.app.util.BrowseFilters
-import com.dzirent.app.util.DISTANCE_STEPS
-import com.dzirent.app.util.DistanceUnit
+import com.dzirent.app.ui.theme.DzirentLogoMark
 import com.dzirent.app.util.GuideTarget
 import com.dzirent.app.util.HOME_ROW_MIN
 import com.dzirent.app.util.HomeRow
 import com.dzirent.app.util.HomeSections
 import com.dzirent.app.util.StudioSummary
+import com.dzirent.app.util.SuggestionGroup
 import com.dzirent.app.util.formatDateChip
 import com.dzirent.app.util.formatDistance
 import kotlinx.coroutines.launch
@@ -102,6 +106,10 @@ fun HomeScreen(
             is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { session.load(lat, lng, radiusKm, force = true) } })
             is UiState.Success -> {
                 val sections = remember(state, session.filters, session.dates) { session.sections() } ?: return@Column
+                val suggestions = rememberSuggestions(
+                    session, profile.id, lat, lng, query = "", filters = session.filters, dates = session.dates,
+                    active = sections.visible.isEmpty()
+                )
                 PullToRefreshBox(
                     isRefreshing = refreshing,
                     onRefresh = {
@@ -118,16 +126,11 @@ fun HomeScreen(
                         hasMeasurements = sections.likelyFit != null,
                         studiosTab = studiosTab,
                         onTabChange = { studiosTab = it },
-                        filters = session.filters,
-                        distanceUnit = unit,
-                        dateText = formatDateChip(session.dates),
+                        suggestions = suggestions,
                         onOpenListing = onOpenListing,
                         onOpenStudio = onOpenStudio,
                         onSeeAll = onSeeAll,
-                        onOpenMeasurements = onOpenMeasurements,
-                        onClearFilters = { session.filters = BrowseFilters(distanceStep = session.filters.distanceStep) },
-                        onWiden = { session.filters = session.filters.copy(distanceStep = DISTANCE_STEPS.last) },
-                        onChangeDates = { showDatePicker = true }
+                        onOpenMeasurements = onOpenMeasurements
                     )
                 }
             }
@@ -151,26 +154,26 @@ private fun HomeTopBar(profile: Profile, onAvatar: () -> Unit, onLocation: () ->
         ) {
             Avatar(name = profile.displayName, size = 32.dp)
         }
-        // Placeholder logo until the brand rework.
+        // The logo: flower mark and wordmark (vectors, tinted for light or dark). Sized in dp,
+        // so large fonts never push it into the location.
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier
+                .align(Alignment.Center)
+                .semantics(mergeDescendants = true) { contentDescription = "Dzirent" }
         ) {
-            Icon(
-                imageVector = Icons.Default.LocalFlorist,
+            Image(
+                painter = painterResource(R.drawable.logo_mark),
                 contentDescription = null,
-                modifier = Modifier.size(16.dp)
+                colorFilter = ColorFilter.tint(DzirentLogoMark),
+                modifier = Modifier.size(22.dp)
             )
-            Spacer(modifier = Modifier.width(4.dp))
-            // A logo, so it keeps its size with large fonts instead of running into the location.
-            val density = LocalDensity.current
-            Text(
-                text = "DZIRENT",
-                style = MaterialTheme.typography.titleMedium,
-                fontSize = with(density) { 16.dp.toSp() },
-                fontWeight = FontWeight.Bold,
-                letterSpacing = with(density) { 3.dp.toSp() },
-                maxLines = 1
+            Spacer(modifier = Modifier.width(6.dp))
+            Image(
+                painter = painterResource(R.drawable.logo_wordmark),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onBackground),
+                modifier = Modifier.height(13.dp).aspectRatio(LOGO_WORDMARK_ASPECT)
             )
         }
         Row(
@@ -192,6 +195,9 @@ private fun HomeTopBar(profile: Profile, onAvatar: () -> Unit, onLocation: () ->
         }
     }
 }
+
+/** Width / height of res/drawable/logo_wordmark.xml. */
+private const val LOGO_WORDMARK_ASPECT = 5.634f
 
 /** The one slim bar under the top bar: only the date chip. */
 @Composable
@@ -230,16 +236,12 @@ private fun HomeContent(
     hasMeasurements: Boolean,
     studiosTab: Boolean,
     onTabChange: (Boolean) -> Unit,
-    filters: BrowseFilters,
-    distanceUnit: DistanceUnit,
-    dateText: String,
+    /** "Suggested for you" when nothing matches; null while there are results. */
+    suggestions: List<SuggestionGroup>?,
     onOpenListing: (String) -> Unit,
     onOpenStudio: ((String) -> Unit)?,
     onSeeAll: (HomeRow) -> Unit,
-    onOpenMeasurements: () -> Unit,
-    onClearFilters: () -> Unit,
-    onWiden: () -> Unit,
-    onChangeDates: () -> Unit
+    onOpenMeasurements: () -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -271,23 +273,7 @@ private fun HomeContent(
             }
         }
         if (sections.visible.isEmpty()) {
-            fullWidth("empty") {
-                val filtered = filters != BrowseFilters(distanceStep = filters.distanceStep)
-                val widest = DISTANCE_STEPS.last
-                NothingHere(
-                    text = "Nothing near you is available $dateText within ${distanceUnit.optionLabel(filters.distanceStep)}.",
-                    actionLabel = when {
-                        filtered -> "Clear filters"
-                        filters.distanceStep < widest -> "Show ${distanceUnit.optionLabel(widest)}"
-                        else -> "Change dates"
-                    },
-                    onAction = when {
-                        filtered -> onClearFilters
-                        filters.distanceStep < widest -> onWiden
-                        else -> onChangeDates
-                    }
-                )
-            }
+            suggestionItems(suggestions, query = "", onOpenListing = onOpenListing)
         } else if (studiosTab) {
             items(sections.studios, key = { "studio-${it.lender.id}" }) { studio ->
                 StudioCard(studio = studio, onClick = onOpenStudio?.let { open -> { open(studio.lender.id) } })
@@ -388,31 +374,22 @@ fun StudioCard(studio: StudioSummary, onClick: (() -> Unit)?) {
     }
 }
 
-/** Friendly empty state with one action, sized for inside a list. */
-@Composable
-fun NothingHere(text: String, actionLabel: String, onAction: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 32.dp, horizontal = 8.dp)
-    ) {
-        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.height(12.dp))
-        OutlinedButton(onClick = onAction) { Text(actionLabel) }
-    }
-}
-
 /** "See all" for one Home row: the same listings as a grid. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SeeAllScreen(
     session: BrowseSession,
+    me: String,
+    lat: Double?,
+    lng: Double?,
     row: HomeRow,
     onBack: () -> Unit,
     onOpenListing: (String) -> Unit
 ) {
     val listings = session.sections()?.let { row.listings(it) }.orEmpty()
+    val suggestions = rememberSuggestions(
+        session, me, lat, lng, query = "", filters = session.filters, dates = session.dates, active = listings.isEmpty()
+    )
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(row.title) },
@@ -423,13 +400,7 @@ fun SeeAllScreen(
             }
         )
         if (listings.isEmpty()) {
-            EmptyView(
-                title = "Nothing here right now",
-                description = "Try other dates or a wider distance on Home.",
-                icon = Icons.Default.SearchOff,
-                onAction = onBack,
-                actionLabel = "Back to Home"
-            )
+            SuggestionsGrid(suggestions, query = "", onOpenListing = onOpenListing)
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
