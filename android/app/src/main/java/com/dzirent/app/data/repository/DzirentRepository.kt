@@ -29,15 +29,28 @@ import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.decodeRecordOrNull
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.storage.storage
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.android.Android
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.ByteArrayInputStream
@@ -262,6 +275,60 @@ class DzirentRepository {
             }
             throw fail("change your password", e)
         }
+    }
+
+    /** True if I'm the renter or lender of an active rental (account deletion waits for it). */
+    suspend fun hasActiveRental(userId: String): Boolean {
+        return try {
+            postgrest.from("rentals").select(Columns.raw("id")) {
+                filter {
+                    eq("status", "active")
+                    or {
+                        eq("renter_id", userId)
+                        eq("lender_id", userId)
+                    }
+                }
+                limit(1)
+            }.decodeList<JsonObject>().isNotEmpty()
+        } catch (e: Exception) {
+            throw fail("check your rentals", e)
+        }
+    }
+
+    /**
+     * Deletes my account through the delete-account Edge Function, which takes the user
+     * from my access token, refuses during an active rental, removes my photos and then
+     * the auth user (the database cascades the rest). Sign out afterwards.
+     */
+    suspend fun deleteAccount() {
+        val token = auth.currentSessionOrNull()?.accessToken
+            ?: throw DzirentException("Your session may have expired. Please log out and log in again.")
+        val (status, body) = try {
+            HttpClient(Android).use { http ->
+                val response = http.post("${SupabaseConfig.SUPABASE_URL}/functions/v1/delete-account") {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    header("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+                    contentType(ContentType.Application.Json)
+                    setBody("{}")
+                }
+                response.status.value to response.bodyAsText()
+            }
+        } catch (e: Exception) {
+            throw fail("delete your account", e)
+        }
+        if (status in 200..299) return
+        Log.e("Dzirent", "delete-account returned HTTP $status")
+        // Only the function's own replies (they carry "error") have a message meant for people.
+        val reply = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
+        val message = reply?.takeIf { "error" in it }?.get("message")?.jsonPrimitive?.contentOrNull
+        throw DzirentException(
+            when {
+                message != null -> message
+                status == 401 -> "Your session may have expired. Please log out and log in again."
+                status == 404 -> "Account deletion isn't available yet. Please contact us (Settings > About Dzirent)."
+                else -> "Couldn't delete your account. Please try again."
+            }
+        )
     }
 
     suspend fun resetPassword(emailStr: String) {

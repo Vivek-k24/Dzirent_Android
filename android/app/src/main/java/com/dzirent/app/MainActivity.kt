@@ -588,7 +588,11 @@ fun MainAppScaffold(
                                 onClearSearchHistory = { RecentSearchStore(context, profile.id).clear() },
                                 onAppTour = { startGuide() },
                                 onOpenAbout = { navController.navigate("about") },
-                                onSignOut = onSignOut
+                                onSignOut = onSignOut,
+                                onAccountDeleted = {
+                                    RecentSearchStore(context, profile.id).clear()
+                                    onSignOut()
+                                }
                             )
                         }
                         composable("about") {

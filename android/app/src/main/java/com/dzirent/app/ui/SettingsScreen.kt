@@ -49,7 +49,9 @@ fun SettingsScreen(
     onClearSearchHistory: () -> Unit,
     onAppTour: () -> Unit,
     onOpenAbout: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    /** After the account is gone and the session is cleared. */
+    onAccountDeleted: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -58,6 +60,7 @@ fun SettingsScreen(
     var isSigningOut by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showChangePassword by remember { mutableStateOf(false) }
+    var showDeleteAccount by remember { mutableStateOf(false) }
 
     if (showChangePassword) {
         ChangePasswordDialog(
@@ -66,6 +69,19 @@ fun SettingsScreen(
             onChanged = {
                 showChangePassword = false
                 Toast.makeText(context, "Password changed", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showDeleteAccount) {
+        DeleteAccountDialog(
+            repository = repository,
+            userId = profile.id,
+            onDismiss = { showDeleteAccount = false },
+            onDeleted = {
+                showDeleteAccount = false
+                Toast.makeText(context, "Your account was deleted", Toast.LENGTH_LONG).show()
+                onAccountDeleted()
             }
         )
     }
@@ -142,6 +158,7 @@ fun SettingsScreen(
             SettingsGroup("Account")
             SettingsRow("Email", email ?: "Not available", Icons.Default.Email, onClick = null)
             SettingsRow("Change password", null, Icons.Default.Lock, onClick = { showChangePassword = true })
+            SettingsRow("Delete account", null, Icons.Default.DeleteForever, onClick = { showDeleteAccount = true })
 
             SettingsGroup("About")
             SettingsRow("App tour", "A quick look at where things are", Icons.Default.Explore, onClick = onAppTour)
@@ -304,6 +321,100 @@ private fun ChangePasswordDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isSaving) { Text("Cancel") }
+        }
+    )
+}
+
+/** What a deleted account takes with it, shown before the person confirms. */
+private const val DELETE_ACCOUNT_EXPLANATION =
+    "This permanently deletes your account and everything in it: your profile and studio, " +
+        "your listings and their photos, your chats and messages (for both people), your saved " +
+        "pieces and studios, your measurements and your rental history. It can't be undone."
+
+private const val DELETE_CONFIRM_WORD = "DELETE"
+
+/**
+ * Settings > Account > Delete account: explains what goes, blocks it during an active
+ * rental, and asks for DELETE typed out before calling the delete-account function.
+ */
+@Composable
+private fun DeleteAccountDialog(
+    repository: DzirentRepository,
+    userId: String,
+    onDismiss: () -> Unit,
+    onDeleted: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var typed by remember { mutableStateOf("") }
+    var isDeleting by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    // Null while checking. The function checks again; this only saves typing DELETE for nothing.
+    var activeRental by remember { mutableStateOf<Boolean?>(null) }
+
+    LaunchedEffect(userId) {
+        activeRental = runCatching { repository.hasActiveRental(userId) }.getOrDefault(false)
+    }
+
+    fun delete() {
+        scope.launch {
+            isDeleting = true
+            error = null
+            try {
+                repository.deleteAccount()
+                // The server session is gone with the user; this clears the one on the device.
+                runCatching { repository.signOut() }
+                onDeleted()
+            } catch (e: Exception) {
+                error = e.userMessage("Couldn't delete your account. Please try again.")
+                isDeleting = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isDeleting) onDismiss() },
+        properties = DialogProperties(dismissOnClickOutside = !isDeleting),
+        icon = { Icon(Icons.Default.DeleteForever, contentDescription = null) },
+        title = { Text("Delete account?") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                when (activeRental) {
+                    null -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    true -> Text(
+                        "You have an active rental. In its chat, mark it as returned (or that the deal " +
+                            "didn't happen), then you can delete your account."
+                    )
+                    false -> {
+                        Text(DELETE_ACCOUNT_EXPLANATION)
+                        OutlinedTextField(
+                            value = typed,
+                            onValueChange = { typed = it; error = null },
+                            label = { Text("Type $DELETE_CONFIRM_WORD to confirm") },
+                            singleLine = true,
+                            enabled = !isDeleting,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            if (activeRental == false) {
+                TextButton(
+                    onClick = { delete() },
+                    enabled = typed.trim() == DELETE_CONFIRM_WORD && !isDeleting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(if (isDeleting) "Deleting..." else "Delete account") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isDeleting) {
+                Text(if (activeRental == true) "OK" else "Cancel")
+            }
         }
     )
 }
