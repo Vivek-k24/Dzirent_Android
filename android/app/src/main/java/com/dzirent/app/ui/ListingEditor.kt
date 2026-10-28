@@ -41,6 +41,7 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.dzirent.app.data.ListingDraft
 import com.dzirent.app.data.ListingPublisher
+import com.dzirent.app.data.PhotoAnalysis
 import com.dzirent.app.data.PhotoAnalyzer
 import com.dzirent.app.data.PhotoItem
 import com.dzirent.app.data.PublishStepException
@@ -52,8 +53,11 @@ import com.dzirent.app.util.DistanceUnit
 import com.dzirent.app.util.FashionStyles
 import com.dzirent.app.util.PhotoReview
 import com.dzirent.app.util.PhotoVerdict
+import com.dzirent.app.util.Recognition
 import com.dzirent.app.util.ReviewState
+import com.dzirent.app.util.looksLikeDifferentItem
 import com.dzirent.app.util.photoGate
+import com.dzirent.app.util.recognize
 import com.dzirent.app.util.parseDateRange
 import com.dzirent.app.util.parsePrice
 import com.dzirent.app.util.priceInputText
@@ -174,23 +178,48 @@ private fun ListingEditorForm(
     var retailValueText by rememberSaveable { mutableStateOf(original?.retailValue?.let { formatNumber(it) }.orEmpty()) }
     var depositNote by rememberSaveable { mutableStateOf(original?.depositNote.orEmpty()) }
     var photos by remember { mutableStateOf<List<PhotoItem>>(original?.photos.orEmpty().map { PhotoItem.Existing(it) }) }
-    // Each new photo is checked once, on the phone, as it's added (keyed by PhotoItem.key).
+    // Each new photo is checked once, on the phone, as it's added (keyed by PhotoItem.key):
+    // the quality checks, plus its image embedding and main color for item recognition.
     val analyzer = remember { PhotoAnalyzer(context) }
     val reviews = remember { mutableStateMapOf<String, PhotoReview>() }
+    val analyses = remember { mutableStateMapOf<String, PhotoAnalysis>() }
     LaunchedEffect(photos) {
         photos.filterIsInstance<PhotoItem.New>().filter { it.key !in reviews }.forEach { item ->
             reviews[item.key] = PhotoReview.Checking
             // The form's scope, so reordering photos doesn't cancel a check in progress.
             scope.launch {
-                val checks = analyzer.analyze(item.uri).checks
+                val analysis = analyzer.analyze(item.uri)
+                analyses[item.key] = analysis
+                val checks = analysis.checks
                 reviews[item.key] = if (checks == null) PhotoReview(ReviewState.UNREADABLE) else PhotoReview(ReviewState.CHECKED, checks)
             }
         }
     }
+    val cover = photos.firstOrNull()
+    val coverEmbedding = cover?.let { analyses[it.key]?.embedding }
     fun reviewOf(item: PhotoItem): PhotoReview = when (item) {
         is PhotoItem.Existing -> PhotoReview.Saved
-        is PhotoItem.New -> reviews[item.key] ?: PhotoReview.Checking
+        is PhotoItem.New -> {
+            val review = reviews[item.key] ?: PhotoReview.Checking
+            // Every other photo is compared with the cover.
+            val embedding = analyses[item.key]?.embedding
+            val different = item != cover && coverEmbedding != null && embedding != null &&
+                looksLikeDifferentItem(coverEmbedding, embedding)
+            review.copy(differentItem = different)
+        }
     }
+    // Item recognition on the cover, once it has passed the checks (or warnings were accepted).
+    val coverReady = cover is PhotoItem.New && reviewOf(cover).verdict.let { it == PhotoVerdict.PASSED || it == PhotoVerdict.USED_ANYWAY }
+    var recognized by remember { mutableStateOf<Pair<String, Recognition>?>(null) } // cover key to result
+    LaunchedEffect(cover?.key, coverReady, coverEmbedding) {
+        if (cover == null || !coverReady || coverEmbedding == null || recognized?.first == cover.key) return@LaunchedEffect
+        recognized = cover.key to recognize(analyzer.labelScores(coverEmbedding), analyses[cover.key]?.color)
+    }
+    val recognition = recognized?.takeIf { coverReady && it.first == cover?.key }?.second
+    // Suggestion cards accepted or dismissed ("<cover key>/title"), and covers marked "This is wrong".
+    val answered = remember { mutableStateListOf<String>() }
+    val policyOverruled = remember { mutableStateListOf<String>() }
+    val policyWarning = (recognition as? Recognition.Policy)?.takeIf { cover?.key !in policyOverruled }
     // One unit per listing: an existing listing keeps its own, a new one starts in the unit
     // from Settings > Preferences.
     val settings = LocalAppSettings.current
@@ -210,7 +239,7 @@ private fun ListingEditorForm(
         if (isNew && !profile.hasLocation) return noLocationToPublish(settings.distanceUnit)
         if (photos.isEmpty()) return "Add at least one photo."
         if (photos.size > MAX_PHOTOS) return "You can add up to $MAX_PHOTOS photos."
-        photoGate(photos.map(::reviewOf))?.let { return it }
+        photoGate(photos.map(::reviewOf), policyPending = policyWarning != null)?.let { return it }
         if (title.trim().length !in 3..80) return "Title must be 3 to 80 characters."
         if (isAccessory && itemType == null) {
             showItemTypeError = true
@@ -370,11 +399,53 @@ private fun ListingEditorForm(
         PhotosSection(
             photos = photos,
             reviewOf = ::reviewOf,
-            onUseAnyway = { item -> reviews[item.key] = reviewOf(item).copy(usedAnyway = true); errorMessage = null },
+            onUseAnyway = { item -> reviews[item.key] = (reviews[item.key] ?: PhotoReview.Checking).copy(usedAnyway = true); errorMessage = null },
+            policyWarning = policyWarning,
+            onPolicyWrong = { cover?.let { policyOverruled += it.key }; errorMessage = null },
             onPhotosChange = { photos = it; errorMessage = null },
             onMessage = { errorMessage = it }
         )
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Suggested from the cover photo; accepting fills the field, which stays editable.
+        (recognition as? Recognition.Suggest)?.suggestions?.let { suggested ->
+            val key = cover?.key.orEmpty()
+            fun open(field: String) = "$key/$field" !in answered
+            fun answer(field: String) { answered += "$key/$field" }
+            if (open("title") || open("category") || open("description")) {
+                Text("Suggested from your photo", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Tap the tick to use one. You can still edit everything.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            if (open("title")) {
+                SuggestionCard("Title", suggested.title, onAccept = { title = suggested.title; answer("title") }, onDismiss = { answer("title") })
+            }
+            if (open("category")) {
+                SuggestionCard(
+                    label = if (suggested.itemType != null) "Category and item type" else "Category",
+                    value = listOfNotNull(suggested.category, suggested.itemType).joinToString(" · "),
+                    onAccept = {
+                        category = suggested.category
+                        itemType = suggested.itemType
+                        showItemTypeError = false
+                        answer("category")
+                    },
+                    onDismiss = { answer("category") }
+                )
+            }
+            if (open("description")) {
+                SuggestionCard(
+                    "Description",
+                    suggested.description,
+                    onAccept = { description = suggested.description; answer("description") },
+                    onDismiss = { answer("description") }
+                )
+            }
+        }
 
         OutlinedTextField(
             value = title,
@@ -636,6 +707,8 @@ private fun PhotosSection(
     photos: List<PhotoItem>,
     reviewOf: (PhotoItem) -> PhotoReview,
     onUseAnyway: (PhotoItem) -> Unit,
+    policyWarning: Recognition.Policy?,
+    onPolicyWrong: () -> Unit,
     onPhotosChange: (List<PhotoItem>) -> Unit,
     onMessage: (String) -> Unit
 ) {
@@ -754,6 +827,19 @@ private fun PhotosSection(
         Spacer(modifier = Modifier.height(8.dp))
     }
 
+    // The cover looks like something Dzirent doesn't list.
+    policyWarning?.let { warning ->
+        PolicyWarningCard(
+            message = warning.message,
+            onChooseAnother = {
+                onPhotosChange(photos.drop(1))
+                start(PhotoSource.Gallery)
+            },
+            onWrong = onPolicyWrong
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
             onClick = { start(PhotoSource.Gallery) },
@@ -845,6 +931,42 @@ private fun PhotoThumb(
             }
         }
         PhotoCheckResult(review, onUseAnyway)
+    }
+}
+
+/** "This looks like a hat. Dzirent doesn't allow hats." with a way out either way. */
+@Composable
+private fun PolicyWarningCard(message: String, onChooseAnother: () -> Unit, onWrong: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 4.dp)) {
+            Text(text = message, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(end = 8.dp))
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onWrong) { Text("This is wrong") }
+                TextButton(onClick = onChooseAnother) { Text("Choose another photo") }
+            }
+        }
+    }
+}
+
+/** One suggestion from the cover photo: the tick fills the field, the X dismisses it. */
+@Composable
+private fun SuggestionCard(label: String, value: String, onAccept: () -> Unit, onDismiss: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)) {
+            Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value, style = MaterialTheme.typography.bodyLarge)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss suggested ${label.lowercase()}", tint = MaterialTheme.colorScheme.error)
+            }
+            IconButton(onClick = onAccept) {
+                Icon(Icons.Default.Check, contentDescription = "Use suggested ${label.lowercase()}", tint = DzirentPass)
+            }
+        }
     }
 }
 

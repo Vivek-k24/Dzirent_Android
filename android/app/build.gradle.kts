@@ -89,6 +89,10 @@ android {
         compose = true
         buildConfig = true
     }
+    androidResources {
+        // The model is memory-mapped straight from the APK, which needs it stored uncompressed.
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -129,6 +133,9 @@ dependencies {
 
     // Open-source licenses screen
     implementation(libs.aboutlibraries.compose.m3)
+
+    // Item recognition on the phone (TinyCLIP image encoder in assets/ml)
+    implementation(libs.litert)
 
     debugImplementation(libs.androidx.ui.tooling)
 

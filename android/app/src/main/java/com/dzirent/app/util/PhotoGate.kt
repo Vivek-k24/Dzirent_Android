@@ -58,16 +58,20 @@ data class PhotoReview(
     }
 }
 
+const val POLICY_PENDING = "Choose another photo, or tap \"This is wrong\" if we misread the item."
+
 /**
  * Why the photos stop the listing from publishing, or null when they don't: every check has
  * finished, nothing is blocked, every warning was accepted with "Use anyway" (or the photo
- * removed), and at least one photo passes every check.
+ * removed), at least one photo passes every check, and a "not allowed" / "not offered"
+ * warning on the cover ([policyPending]) was answered.
  */
-fun photoGate(reviews: List<PhotoReview>): String? {
+fun photoGate(reviews: List<PhotoReview>, policyPending: Boolean = false): String? {
     val verdicts = reviews.map { it.verdict }
     return when {
         reviews.isEmpty() -> "Add at least one photo."
         PhotoVerdict.CHECKING in verdicts -> "Still checking your photos. Try again in a moment."
+        policyPending -> POLICY_PENDING
         PhotoVerdict.BLOCKED in verdicts -> "Some photos can't be used. Retake or remove the ones marked in red."
         PhotoVerdict.WARNING in verdicts -> "Some photos have a warning. Tap \"Use anyway\" or remove them."
         PhotoVerdict.PASSED !in verdicts -> "Add at least one photo that passes every check."

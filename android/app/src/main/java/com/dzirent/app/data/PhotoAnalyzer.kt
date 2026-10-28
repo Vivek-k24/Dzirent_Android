@@ -8,34 +8,45 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
+import com.dzirent.app.util.ColorName
 import com.dzirent.app.util.PhotoChecks
 import com.dzirent.app.util.PhotoThresholds
 import com.dzirent.app.util.RgbImage
 import com.dzirent.app.util.checkPhoto
+import com.dzirent.app.util.dominantColorName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** The checks on one photo, or null checks when it couldn't be read. */
-data class PhotoAnalysis(val checks: PhotoChecks?)
+/**
+ * What the phone worked out about one photo: the checks (null when it couldn't be read), the
+ * image embedding for item recognition and the same-item check (null if the model isn't
+ * available), and the dominant color in the middle of the photo.
+ */
+class PhotoAnalysis(val checks: PhotoChecks?, val embedding: FloatArray? = null, val color: ColorName? = null)
 
 /**
- * Checks photos as they're added to a listing. Everything runs on the phone, off the main
- * thread; the photo is only read, never sent anywhere.
+ * Checks photos as they're added to a listing and runs item recognition on them. Everything
+ * runs on the phone, off the main thread; the photo is only read, never sent anywhere.
  */
 class PhotoAnalyzer(context: Context) {
     private val appContext = context.applicationContext
+    private val recognizer = ItemRecognizer.get(appContext)
 
     suspend fun analyze(uri: Uri): PhotoAnalysis = withContext(Dispatchers.Default) {
         val bitmap = decodeUpright(appContext, uri, PhotoThresholds.WORKING_LONG_SIDE)
             ?: return@withContext PhotoAnalysis(checks = null)
         try {
-            PhotoAnalysis(checks = checkPhoto(bitmap.toRgbImage()))
+            val image = bitmap.toRgbImage()
+            PhotoAnalysis(checks = checkPhoto(image), embedding = recognizer.embed(bitmap), color = dominantColorName(image))
         } finally {
             bitmap.recycle()
         }
     }
+
+    /** Every label's probability for an embedding from [analyze], best first. */
+    suspend fun labelScores(embedding: FloatArray) = recognizer.scores(embedding)
 
     companion object {
         /**
