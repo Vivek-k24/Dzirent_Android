@@ -153,6 +153,7 @@ private val TabInbox = TabItem("inbox", "Inbox", Icons.Default.MailOutline)
 private val TabSearch = TabItem("search", "Search", Icons.Default.Search)
 private val TabCloset = TabItem("closet", "Closet", Icons.Default.Checkroom)
 private val TabBag = TabItem("bag", "Bag", Icons.Default.BookmarkBorder)
+private val TabRoutes = listOf(TabHome, TabInbox, TabSearch, TabCloset, TabBag).map { it.route }.toSet()
 
 /** How often the Inbox dot re-checks for news while the app is open. */
 private const val INBOX_REFRESH_MS = 60_000L
@@ -234,13 +235,31 @@ fun MainAppScaffold(
         )
     }
 
+    /**
+     * Home always shows Home itself. Screens opened from it (Settings, Profile, a listing...)
+     * sit on Home's back stack, so restoring its saved state would bring them back; popping
+     * to Home drops them. Tapping the tab you are on returns to its root. The other tabs
+     * keep their place when you switch between them.
+     */
     fun openTab(route: String) {
-        currentTab = route
-        navController.navigate(route) {
-            popUpTo(TabHome.route) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+        when {
+            route == TabHome.route -> navController.navigate(route) {
+                popUpTo(TabHome.route) { saveState = true }
+                launchSingleTop = true
+            }
+            route == currentTab && navController.popBackStack(route, inclusive = false) -> Unit
+            else -> navController.navigate(route) {
+                popUpTo(TabHome.route) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
+        currentTab = route
+    }
+
+    // Back from a tab's root lands on Home, so the selected tab follows the back stack too.
+    LaunchedEffect(route) {
+        if (route != null && route in TabRoutes) currentTab = route
     }
 
     fun openChat(conversationId: String, draft: String? = null) =
