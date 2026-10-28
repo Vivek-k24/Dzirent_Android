@@ -34,6 +34,16 @@ private val LocalDarkTheme = staticCompositionLocalOf { false }
 val DzirentAccent: Color
     @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) AccentOnDark else AccentOnLight
 
+/** The logo's maroon (design/logo-source.png). */
+private val LogoMaroon = Color(0xFFA80038)
+
+/**
+ * The flower mark's colour: the logo maroon, or the lighter accent in dark mode, where the
+ * maroon would be too dark to read on the near-black background.
+ */
+val DzirentLogoMark: Color
+    @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) AccentOnDark else LogoMaroon
+
 /** Icons and text drawn on the accent: white on the dark red, near-black on the light pink. */
 val OnDzirentAccent: Color
     @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Ink else Color.White
