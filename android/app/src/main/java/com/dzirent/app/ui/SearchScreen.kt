@@ -54,7 +54,8 @@ class RecentSearchStore(context: Context, private val userId: String) {
 /**
  * Text search over titles and descriptions. The field is focused right away; recent
  * searches show while it's empty. Results respect the date range and the sidebar filters,
- * shown as removable chips, and can be sorted with the icon in the results header.
+ * shown as removable chips, and changed with "Filter results" (the sidebar's filter sheet) next
+ * to them. Results can be sorted with the icon in the results header.
  */
 @Composable
 fun SearchScreen(
@@ -70,6 +71,7 @@ fun SearchScreen(
     var sort by rememberSaveable { mutableStateOf(SearchSort.NEAREST) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
     // Search can drop the date range ("Any dates"); Home always keeps one.
     var anyDates by rememberSaveable { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -101,6 +103,18 @@ fun SearchScreen(
                 anyDates = false
                 showDatePicker = false
             }
+        )
+    }
+
+    // The sidebar's filter sheet, applied to this search (the results stay on screen).
+    if (showFilters) {
+        FilterSheet(
+            current = session.filters,
+            onApply = { applied ->
+                session.filters = applied
+                showFilters = false
+            },
+            onDismiss = { showFilters = false }
         )
     }
 
@@ -155,38 +169,50 @@ fun SearchScreen(
         }
 
         val chips = filterChips(session.filters, settings.distanceUnit, settings.defaultDistanceStep)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // The dates are a removable chip like the other filters; without them, availability
-            // is ignored and the chip offers to pick dates again.
-            item(key = "dates") {
-                if (anyDates) {
-                    AssistChip(
-                        onClick = { showDatePicker = true },
-                        label = { Text("Any dates") },
-                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    )
-                } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LazyRow(
+                contentPadding = PaddingValues(start = 16.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                // The dates are a removable chip like the other filters; without them, availability
+                // is ignored and the chip offers to pick dates again.
+                item(key = "dates") {
+                    if (anyDates) {
+                        AssistChip(
+                            onClick = { showDatePicker = true },
+                            label = { Text("Any dates") },
+                            leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                    } else {
+                        InputChip(
+                            selected = false,
+                            onClick = { anyDates = true },
+                            label = { Text(formatDateChip(session.dates)) },
+                            leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            trailingIcon = {
+                                Icon(Icons.Default.Close, contentDescription = "Remove dates", modifier = Modifier.size(16.dp))
+                            }
+                        )
+                    }
+                }
+                items(chips, key = { it.label }) { chip ->
                     InputChip(
                         selected = false,
-                        onClick = { anyDates = true },
-                        label = { Text(formatDateChip(session.dates)) },
-                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        trailingIcon = {
-                            Icon(Icons.Default.Close, contentDescription = "Remove dates", modifier = Modifier.size(16.dp))
-                        }
+                        onClick = { session.filters = chip.remove(session.filters) },
+                        label = { Text(chip.label) },
+                        trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove ${chip.label}", modifier = Modifier.size(16.dp)) }
                     )
                 }
             }
-            items(chips, key = { it.label }) { chip ->
-                InputChip(
-                    selected = false,
-                    onClick = { session.filters = chip.remove(session.filters) },
-                    label = { Text(chip.label) },
-                    trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove ${chip.label}", modifier = Modifier.size(16.dp)) }
-                )
+            TextButton(
+                onClick = { showFilters = true },
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.padding(end = 4.dp)
+            ) {
+                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Filter results")
             }
         }
 
