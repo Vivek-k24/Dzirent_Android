@@ -164,8 +164,8 @@ private val TabHome = TabItem("home", "Home", Icons.Default.Home)
 private val TabInbox = TabItem("inbox", "Inbox", Icons.Default.MailOutline)
 private val TabSearch = TabItem("search", "Search", Icons.Default.Search)
 private val TabCloset = TabItem("closet", "Closet", Icons.Default.Checkroom)
-private val TabBag = TabItem("bag", "Bag", Icons.Default.BookmarkBorder)
-private val TabRoutes = listOf(TabHome, TabInbox, TabSearch, TabCloset, TabBag).map { it.route }.toSet()
+private val TabSaved = TabItem("saved", "Saved", Icons.Default.BookmarkBorder)
+private val TabRoutes = listOf(TabHome, TabInbox, TabSearch, TabCloset, TabSaved).map { it.route }.toSet()
 
 /** How often the Inbox dot re-checks for news while the app is open. */
 private const val INBOX_REFRESH_MS = 60_000L
@@ -401,11 +401,11 @@ fun MainAppScaffold(
                                 modifier = Modifier.guideTarget(GuideTarget.CLOSET)
                             ) { openTab(TabCloset.route) }
                             BottomTab(
-                                TabBag,
-                                selected = currentTab == TabBag.route,
+                                TabSaved,
+                                selected = currentTab == TabSaved.route,
                                 dot = false,
-                                modifier = Modifier.guideTarget(GuideTarget.BAG)
-                            ) { openTab(TabBag.route) }
+                                modifier = Modifier.guideTarget(GuideTarget.SAVED)
+                            ) { openTab(TabSaved.route) }
                         }
                     }
                 ) { innerPadding ->
@@ -540,8 +540,8 @@ fun MainAppScaffold(
                                 )
                             }
                         }
-                        composable("bag") {
-                            BagScreen(
+                        composable("saved") {
+                            SavedScreen(
                                 repository = repository,
                                 currentUserId = profile.id,
                                 onOpenListing = { id -> navController.navigate("detail/$id") },

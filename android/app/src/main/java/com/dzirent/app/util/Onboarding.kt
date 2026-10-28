@@ -37,7 +37,7 @@ fun setupItems(canLend: Boolean): List<SetupItem> =
 fun hasAnyBodyMeasurement(body: PrivateProfile): Boolean = BodyMeasurement.entries.any { body.bodyCm(it) != null }
 
 /** The real UI elements the "Show me around" guide points at. */
-enum class GuideTarget { DATE_CHIP, AVATAR, SEARCH, CLOSET, BAG }
+enum class GuideTarget { DATE_CHIP, AVATAR, SEARCH, CLOSET, SAVED }
 
 data class GuideStep(val target: GuideTarget, val text: String)
 
@@ -50,5 +50,5 @@ fun guideSteps(canLend: Boolean): List<GuideStep> = listOf(
         GuideTarget.CLOSET,
         if (canLend) "Your listings and rentals live here." else "Your rentals live here."
     ),
-    GuideStep(GuideTarget.BAG, "Pieces and studios you save show up here. Messages are in Inbox.")
+    GuideStep(GuideTarget.SAVED, "Pieces and studios you save show up here. Messages are in Inbox.")
 )

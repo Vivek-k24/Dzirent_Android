@@ -129,7 +129,7 @@ data class Listing(
     val priceLabel: String get() = priceUsd?.let { formatPrice(it) } ?: priceNote
 }
 
-/** One of my saved pieces (Bag > Pieces), with the listing embedded. */
+/** One of my saved pieces (Saved > Pieces), with the listing embedded. */
 @Serializable
 data class SavedListing(
     @SerialName("user_id") val userId: String,
@@ -139,7 +139,7 @@ data class SavedListing(
     val listing: Listing? = null
 )
 
-/** One of my saved studios (Bag > Studios), with the lender's public profile embedded. */
+/** One of my saved studios (Saved > Studios), with the lender's public profile embedded. */
 @Serializable
 data class SavedStudio(
     @SerialName("user_id") val userId: String,

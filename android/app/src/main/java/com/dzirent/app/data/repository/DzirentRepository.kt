@@ -581,7 +581,7 @@ class DzirentRepository {
         }
     }
 
-    /** Adds a studio to my Bag (saving twice is harmless). */
+    /** Adds a studio to my Saved (saving twice is harmless). */
     suspend fun saveStudio(userId: String, lenderId: String) {
         try {
             postgrest.from("saved_studios").upsert(
@@ -833,7 +833,7 @@ class DzirentRepository {
     }
 
     /**
-     * Bag > Pieces, newest first. The listing is null when it was paused or deleted
+     * Saved > Pieces, newest first. The listing is null when it was paused or deleted
      * (RLS hides other people's paused listings).
      */
     suspend fun getSavedListings(userId: String): List<SavedListing> {
@@ -843,11 +843,11 @@ class DzirentRepository {
                 order("created_at", Order.DESCENDING)
             }.decodeList<SavedListing>().map { saved -> saved.copy(listing = saved.listing?.sorted()) }
         } catch (e: Exception) {
-            throw fail("load your Bag", e)
+            throw fail("load your saved pieces", e)
         }
     }
 
-    /** Bag > Studios, newest first, with each lender's public studio details. */
+    /** Saved > Studios, newest first, with each lender's public studio details. */
     suspend fun getSavedStudios(userId: String): List<SavedStudio> {
         return try {
             postgrest.from("saved_studios").select(
@@ -859,7 +859,7 @@ class DzirentRepository {
                 order("created_at", Order.DESCENDING)
             }.decodeList<SavedStudio>()
         } catch (e: Exception) {
-            throw fail("load your Bag", e)
+            throw fail("load your saved pieces", e)
         }
     }
 

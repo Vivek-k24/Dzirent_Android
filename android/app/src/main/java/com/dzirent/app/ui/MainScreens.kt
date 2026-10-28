@@ -141,7 +141,7 @@ fun ListingDetailScreen(
                 else repository.saveListing(currentUserId, listing.id)
                 isSaved = !saved
             } catch (e: Exception) {
-                Toast.makeText(context, e.userMessage("Couldn't update your Bag. Please try again."), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, e.userMessage("Couldn't update your saved pieces. Please try again."), Toast.LENGTH_SHORT).show()
             }
             savingBookmark = false
         }
@@ -172,7 +172,7 @@ fun ListingDetailScreen(
                         IconButton(onClick = { toggleSaved(loaded) }, enabled = !savingBookmark) {
                             Icon(
                                 imageVector = if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = if (saved) "Remove from Bag" else "Save to Bag",
+                                contentDescription = if (saved) "Remove from Saved" else "Save",
                                 tint = if (saved) MaterialTheme.colorScheme.primary else LocalContentColor.current
                             )
                         }
