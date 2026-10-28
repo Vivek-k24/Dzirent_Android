@@ -46,6 +46,25 @@ fun formatDateChip(range: DateRange): String {
 }
 
 /**
+ * The dates question, worded the same everywhere one is created (Bag, studio "Message",
+ * the chat chip): "Is this available Oct 27 - 31?". The chat is about one piece, so "this".
+ */
+fun datesQuestion(dates: DateRange): String = "Is this available ${formatDateChip(dates)}?"
+
+/**
+ * [dates] if the message [body] asks about them (it contains the chip text, as the
+ * dates question does), so the chat can save them. Null if the dates were edited out.
+ */
+fun datesAsked(body: String, dates: DateRange): DateRange? = dates.takeIf { formatDateChip(dates) in body }
+
+/**
+ * The line under the pinned listing in chat: "Your dates: Oct 27 - 31" for the renter
+ * who asked, "Their dates: Oct 27 - 31" for the lender. Null when none were asked.
+ */
+fun chatDatesLine(dates: DateRange?, iAmRenter: Boolean): String? =
+    dates?.let { (if (iAmRenter) "Your dates: " else "Their dates: ") + formatDateChip(it) }
+
+/**
  * True if [wanted] lies inside the availability [windows]. Back-to-back (the next window
  * starts the day after) and overlapping windows are joined first, so a range spanning
  * them counts. No windows at all means "available any time" (listings from before

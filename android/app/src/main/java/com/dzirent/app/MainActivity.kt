@@ -441,7 +441,7 @@ fun MainAppScaffold(
                                 onBack = { navController.popBackStack() },
                                 onOpenListing = { id -> navController.navigate("detail/$id") },
                                 onMessageAbout = { piece ->
-                                    startChat(piece.id, piece.lenderId, datesQuestion(piece.title, session.dates))
+                                    startChat(piece.id, piece.lenderId, datesQuestion(session.dates))
                                 },
                                 // "From studios you saved" changes.
                                 onSavedChanged = { session.invalidate() }
@@ -467,6 +467,7 @@ fun MainAppScaffold(
                                 currentUserId = profile.id,
                                 onBack = { navController.popBackStack() },
                                 onOpenListing = { id -> navController.navigate("detail/$id") },
+                                myDates = session.dates,
                                 initialDraft = backStackEntry.arguments?.getString("draft")
                             )
                         }
@@ -520,7 +521,7 @@ fun MainAppScaffold(
                                 onOpenListing = { id -> navController.navigate("detail/$id") },
                                 onOpenStudio = { lenderId -> navController.navigate("studio/$lenderId") },
                                 onMessageAboutDates = { piece ->
-                                    startChat(piece.id, piece.lenderId, datesQuestion(piece.title, session.dates))
+                                    startChat(piece.id, piece.lenderId, datesQuestion(session.dates))
                                 },
                                 onBrowse = { openTab(TabHome.route) },
                                 onStudiosChanged = { session.invalidate() }

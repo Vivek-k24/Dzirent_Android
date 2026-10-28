@@ -52,7 +52,3 @@ private val monthYear = DateTimeFormatter.ofPattern("MMM yyyy", Locale.US)
 /** "Since Oct 2026" from the profile's created_at, or null if it can't be read. */
 fun sinceText(createdAt: String?): String? =
     createdAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }?.let { "Since ${it.format(monthYear)}" }
-
-/** The message prefilled when asking about a piece for the current dates. */
-fun datesQuestion(title: String, dates: DateRange): String =
-    "Hi! Is “$title” available ${formatDateChip(dates)}?"

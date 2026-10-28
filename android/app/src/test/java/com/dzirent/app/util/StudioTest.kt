@@ -5,7 +5,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
 
 class StudioTest {
 
@@ -48,11 +47,5 @@ class StudioTest {
         assertEquals("Since Oct 2026", sinceText("2026-10-24T15:03:00.123456+00:00"))
         assertNull(sinceText(null))
         assertNull(sinceText("not a date"))
-    }
-
-    @Test
-    fun datesQuestionUsesTheChipFormat() {
-        val range = DateRange(LocalDate.parse("2026-10-26"), LocalDate.parse("2026-10-30"))
-        assertEquals("Hi! Is “Gown” available Oct 26 - 30?", datesQuestion("Gown", range))
     }
 }

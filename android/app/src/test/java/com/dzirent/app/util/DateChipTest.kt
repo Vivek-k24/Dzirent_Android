@@ -2,6 +2,7 @@ package com.dzirent.app.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -84,5 +85,29 @@ class DateChipTest {
         val windows = listOf(r("2026-10-20", "2026-10-25"), r("2026-10-27", "2026-10-31"))
         assertFalse(isAvailableFor(windows, r("2026-10-24", "2026-10-28")))
         assertTrue(isAvailableFor(windows, r("2026-10-27", "2026-10-28")))
+    }
+
+    @Test
+    fun datesQuestionHasTheActualDates() {
+        assertEquals("Is this available Oct 27 - 31?", datesQuestion(r("2026-10-27", "2026-10-31")))
+        assertEquals("Is this available Oct 30 - Nov 2?", datesQuestion(r("2026-10-30", "2026-11-02")))
+        assertEquals("Is this available Oct 27?", datesQuestion(r("2026-10-27", "2026-10-27")))
+    }
+
+    @Test
+    fun sentQuestionSavesItsDates() {
+        val dates = r("2026-10-27", "2026-10-31")
+        assertEquals(dates, datesAsked(datesQuestion(dates), dates))
+        assertEquals(dates, datesAsked("Hi! Is this available Oct 27 - 31? Thanks", dates))
+        assertNull(datesAsked("Is this available Nov 3 - 5?", dates))
+        assertNull(datesAsked("Can I see more photos?", dates))
+    }
+
+    @Test
+    fun chatDatesLineNamesWhoAsked() {
+        val dates = r("2026-10-27", "2026-10-31")
+        assertEquals("Your dates: Oct 27 - 31", chatDatesLine(dates, iAmRenter = true))
+        assertEquals("Their dates: Oct 27 - 31", chatDatesLine(dates, iAmRenter = false))
+        assertNull(chatDatesLine(null, iAmRenter = true))
     }
 }

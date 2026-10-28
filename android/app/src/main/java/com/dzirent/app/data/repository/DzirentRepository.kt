@@ -9,6 +9,7 @@ import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.*
 import com.dzirent.app.util.ActivityItem
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.DateRange
 import com.dzirent.app.util.FitProfile
 import com.dzirent.app.util.buildActivity
 import com.dzirent.app.util.hasUnread
@@ -926,6 +927,24 @@ class DzirentRepository {
             postgrest.rpc("mark_conversation_read", buildJsonObject { put("p_conversation_id", conversationId) })
         } catch (e: Exception) {
             logError("mark chat read", e)
+        }
+    }
+
+    /**
+     * Saves the dates the renter asked about, so both people see them under the pinned
+     * listing. Only the renter can (set_conversation_dates). Failures are only logged.
+     */
+    suspend fun setConversationDates(conversationId: String, dates: DateRange): Boolean {
+        return try {
+            postgrest.rpc("set_conversation_dates", buildJsonObject {
+                put("p_conversation_id", conversationId)
+                put("p_start", dates.start.toString())
+                put("p_end", dates.end.toString())
+            })
+            true
+        } catch (e: Exception) {
+            logError("save chat dates", e)
+            false
         }
     }
 
