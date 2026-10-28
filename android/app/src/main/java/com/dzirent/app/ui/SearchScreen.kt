@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.Profile
-import com.dzirent.app.util.BrowseFilters
 import com.dzirent.app.util.SearchSort
 import com.dzirent.app.util.addRecentSearch
 import com.dzirent.app.util.filterChips
@@ -198,6 +197,18 @@ fun SearchScreen(
                 val results = remember(state, session.filters, session.dates, anyDates, query, sort) {
                     sortSearchResults(session.sections(anyDates)?.visible.orEmpty().filter { it.matchesQuery(query) }, sort)
                 }
+                val suggestions = rememberSuggestions(
+                    session, profile.id, lat, lng, query, session.filters, if (anyDates) null else session.dates,
+                    active = results.isEmpty()
+                )
+                if (results.isEmpty()) {
+                    // Never an empty screen: what's close to the search instead.
+                    SuggestionsGrid(suggestions, query, onOpenListing = { id ->
+                        saveRecent(query)
+                        onOpenListing(id)
+                    })
+                    return@Column
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(start = 16.dp, end = 4.dp)
@@ -227,32 +238,21 @@ fun SearchScreen(
                         }
                     }
                 }
-                if (results.isEmpty()) {
-                    NothingHere(
-                        text = "No pieces match “${query.trim()}” for these dates and filters.",
-                        actionLabel = if (chips.isNotEmpty()) "Clear filters" else "Change dates",
-                        onAction = {
-                            if (chips.isNotEmpty()) session.filters = BrowseFilters(distanceStep = settings.defaultDistanceStep)
-                            else showDatePicker = true
-                        }
-                    )
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(results, key = { it.id }) { listing ->
-                            ListingCard(
-                                listing = listing,
-                                onClick = {
-                                    saveRecent(query)
-                                    onOpenListing(listing.id)
-                                }
-                            )
-                        }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(results, key = { it.id }) { listing ->
+                        ListingCard(
+                            listing = listing,
+                            onClick = {
+                                saveRecent(query)
+                                onOpenListing(listing.id)
+                            }
+                        )
                     }
                 }
             }

@@ -430,6 +430,9 @@ fun MainAppScaffold(
                             val row = HomeRow.entries.firstOrNull { it.name == backStackEntry.arguments?.getString("row") } ?: HomeRow.NEW
                             SeeAllScreen(
                                 session = session,
+                                me = profile.id,
+                                lat = profile.approxLat,
+                                lng = profile.approxLng,
                                 row = row,
                                 onBack = { navController.popBackStack() },
                                 onOpenListing = { listingId -> navController.navigate("detail/$listingId") }

@@ -26,6 +26,12 @@ enum class DistanceUnit(val key: String, val label: String, val short: String, p
     /** "5 mi" for the option at [step]. */
     fun optionLabel(step: Int): String = "${options[clampStep(step)]} $short"
 
+    /** "15 miles", "1 mile" or "25 km" for the option at [step], after "Within". */
+    fun withinLabel(step: Int): String {
+        val n = options[clampStep(step)]
+        return if (this == MILES) "$n ${if (n == 1) "mile" else "miles"}" else "$n km"
+    }
+
     fun fromKm(km: Double): Double = km / kmPerUnit
 
     /** How precisely locations are saved (2 decimals of a degree), in words. */

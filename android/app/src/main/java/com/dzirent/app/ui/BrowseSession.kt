@@ -13,6 +13,7 @@ import com.dzirent.app.util.DEFAULT_RENTAL_DAYS
 import com.dzirent.app.util.HomeSections
 import com.dzirent.app.util.buildHomeSections
 import com.dzirent.app.util.defaultBrowseRange
+import com.dzirent.app.util.haversineKm
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
@@ -63,9 +64,26 @@ class BrowseSession(
         }
     }
 
+    /** Everything loaded for the current distance (before filters and dates). */
+    fun loadedListings(): List<Listing> = (state as? UiState.Success)?.data?.listings.orEmpty()
+
+    private var wider: Pair<Triple<Double, Double, Double>, List<Listing>>? = null
+
+    /** Listings within [radiusKm] for the "wider distance" suggestion, loaded once per place and radius. */
+    suspend fun widerListings(lat: Double, lng: Double, radiusKm: Double): List<Listing> {
+        val key = Triple(lat, lng, radiusKm)
+        wider?.takeIf { it.first == key }?.let { return it.second }
+        return repository.getBrowseListings(lat, lng, radiusKm).also { wider = key to it }
+    }
+
+    /** Close text matches for a search that found nothing (typos), with their distance from me. */
+    suspend fun similarListings(query: String, lat: Double, lng: Double): List<Listing> =
+        repository.searchSimilarListings(query).map { it.copy(distanceKm = haversineKm(lat, lng, it.approxLat, it.approxLng)) }
+
     /** The next [load] fetches again, e.g. after saving measurements or a studio. */
     fun invalidate() {
         loadedFor = null
+        wider = null
     }
 
     /**

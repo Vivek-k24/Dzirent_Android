@@ -499,8 +499,37 @@ class DzirentRepository {
      * Nearby listings for Home and Search, with photos, availability, measurements and the
      * lender's public profile filled in (one batched query each).
      */
-    suspend fun getBrowseListings(lat: Double, lng: Double, radiusKm: Double): List<Listing> {
-        val listings = getNearbyListings(lat, lng, radiusKm)
+    suspend fun getBrowseListings(lat: Double, lng: Double, radiusKm: Double): List<Listing> =
+        withBrowseDetails(getNearbyListings(lat, lng, radiusKm))
+
+    /**
+     * Active listings whose title or description is close to [query] (typos included), best
+     * match first, with the same details as [getBrowseListings]. Uses search_listings_similar
+     * (007); returns nothing if that fails, since it only feeds suggestions.
+     */
+    suspend fun searchSimilarListings(query: String, limit: Int = 24): List<Listing> {
+        val found = try {
+            postgrest.rpc(
+                "search_listings_similar",
+                buildJsonObject {
+                    put("p_query", query)
+                    put("p_limit", limit)
+                }
+            ).decodeList<Listing>()
+        } catch (e: Exception) {
+            logError("search similar listings", e)
+            return emptyList()
+        }
+        return try {
+            withBrowseDetails(withPhotos(found))
+        } catch (e: Exception) {
+            logError("load similar listings", e)
+            emptyList()
+        }
+    }
+
+    /** Availability, measurements and the lender's public profile, one batched query each. */
+    private suspend fun withBrowseDetails(listings: List<Listing>): List<Listing> {
         if (listings.isEmpty()) return listings
         val ids = listings.map { it.id }
         return try {
