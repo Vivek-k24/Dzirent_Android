@@ -44,6 +44,14 @@ private val LogoMaroon = Color(0xFFA80038)
 val DzirentLogoMark: Color
     @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) AccentOnDark else LogoMaroon
 
+/** The green tick and accept buttons on photo checks and suggestions (AA on both backgrounds). */
+val DzirentPass: Color
+    @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFF6FCF7F) else Color(0xFF1E7B34)
+
+/** Photo warnings that can be accepted with "Use anyway". */
+val DzirentWarn: Color
+    @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFFF2B84B) else Color(0xFF8A5300)
+
 /** Icons and text drawn on the accent: white on the dark red, near-black on the light pink. */
 val OnDzirentAccent: Color
     @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Ink else Color.White

@@ -7,6 +7,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -25,9 +27,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -35,12 +41,19 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.dzirent.app.data.ListingDraft
 import com.dzirent.app.data.ListingPublisher
+import com.dzirent.app.data.PhotoAnalyzer
 import com.dzirent.app.data.PhotoItem
 import com.dzirent.app.data.PublishStepException
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
+import com.dzirent.app.ui.theme.DzirentPass
+import com.dzirent.app.ui.theme.DzirentWarn
 import com.dzirent.app.util.DistanceUnit
 import com.dzirent.app.util.FashionStyles
+import com.dzirent.app.util.PhotoReview
+import com.dzirent.app.util.PhotoVerdict
+import com.dzirent.app.util.ReviewState
+import com.dzirent.app.util.photoGate
 import com.dzirent.app.util.parseDateRange
 import com.dzirent.app.util.parsePrice
 import com.dzirent.app.util.priceInputText
@@ -161,6 +174,23 @@ private fun ListingEditorForm(
     var retailValueText by rememberSaveable { mutableStateOf(original?.retailValue?.let { formatNumber(it) }.orEmpty()) }
     var depositNote by rememberSaveable { mutableStateOf(original?.depositNote.orEmpty()) }
     var photos by remember { mutableStateOf<List<PhotoItem>>(original?.photos.orEmpty().map { PhotoItem.Existing(it) }) }
+    // Each new photo is checked once, on the phone, as it's added (keyed by PhotoItem.key).
+    val analyzer = remember { PhotoAnalyzer(context) }
+    val reviews = remember { mutableStateMapOf<String, PhotoReview>() }
+    LaunchedEffect(photos) {
+        photos.filterIsInstance<PhotoItem.New>().filter { it.key !in reviews }.forEach { item ->
+            reviews[item.key] = PhotoReview.Checking
+            // The form's scope, so reordering photos doesn't cancel a check in progress.
+            scope.launch {
+                val checks = analyzer.analyze(item.uri).checks
+                reviews[item.key] = if (checks == null) PhotoReview(ReviewState.UNREADABLE) else PhotoReview(ReviewState.CHECKED, checks)
+            }
+        }
+    }
+    fun reviewOf(item: PhotoItem): PhotoReview = when (item) {
+        is PhotoItem.Existing -> PhotoReview.Saved
+        is PhotoItem.New -> reviews[item.key] ?: PhotoReview.Checking
+    }
     // One unit per listing: an existing listing keeps its own, a new one starts in the unit
     // from Settings > Preferences.
     val settings = LocalAppSettings.current
@@ -180,6 +210,7 @@ private fun ListingEditorForm(
         if (isNew && !profile.hasLocation) return noLocationToPublish(settings.distanceUnit)
         if (photos.isEmpty()) return "Add at least one photo."
         if (photos.size > MAX_PHOTOS) return "You can add up to $MAX_PHOTOS photos."
+        photoGate(photos.map(::reviewOf))?.let { return it }
         if (title.trim().length !in 3..80) return "Title must be 3 to 80 characters."
         if (isAccessory && itemType == null) {
             showItemTypeError = true
@@ -338,6 +369,8 @@ private fun ListingEditorForm(
 
         PhotosSection(
             photos = photos,
+            reviewOf = ::reviewOf,
+            onUseAnyway = { item -> reviews[item.key] = reviewOf(item).copy(usedAnyway = true); errorMessage = null },
             onPhotosChange = { photos = it; errorMessage = null },
             onMessage = { errorMessage = it }
         )
@@ -590,7 +623,8 @@ private fun ItemTypePicker(selected: String?, onSelected: (String) -> Unit, isEr
 
 /**
  * 1 to 6 photos from the system Photo Picker or the camera app via a FileProvider URI.
- * Thumbnails can be reordered and removed.
+ * Thumbnails can be reordered and removed. Each new photo shows its checks underneath
+ * (a spinner while they run): a green tick, or the reason it can't be used or needs "Use anyway".
  *
  * The first time each source is used, a short explanation asks for consent (remembered in
  * [PhotoConsentStore]). The camera then needs the CAMERA runtime permission, since the app
@@ -600,6 +634,8 @@ private fun ItemTypePicker(selected: String?, onSelected: (String) -> Unit, isEr
 @Composable
 private fun PhotosSection(
     photos: List<PhotoItem>,
+    reviewOf: (PhotoItem) -> PhotoReview,
+    onUseAnyway: (PhotoItem) -> Unit,
     onPhotosChange: (List<PhotoItem>) -> Unit,
     onMessage: (String) -> Unit
 ) {
@@ -692,7 +728,8 @@ private fun PhotosSection(
 
     Text(text = "Photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     Text(
-        text = "${photos.size}/$MAX_PHOTOS · At least 1 required. The first photo is the cover.",
+        text = "${photos.size}/$MAX_PHOTOS · At least 1 required. The first photo is the cover. " +
+            "Each photo is checked on your phone for sharpness, light and framing.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -703,6 +740,8 @@ private fun PhotosSection(
             itemsIndexed(photos, key = { _, item -> item.key }) { index, item ->
                 PhotoThumb(
                     item = item,
+                    review = reviewOf(item),
+                    onUseAnyway = { onUseAnyway(item) },
                     isCover = index == 0,
                     canMoveLeft = index > 0,
                     canMoveRight = index < photos.lastIndex,
@@ -738,6 +777,8 @@ private fun PhotosSection(
 @Composable
 private fun PhotoThumb(
     item: PhotoItem,
+    review: PhotoReview,
+    onUseAnyway: () -> Unit,
     isCover: Boolean,
     canMoveLeft: Boolean,
     canMoveRight: Boolean,
@@ -745,11 +786,16 @@ private fun PhotoThumb(
     onMoveRight: () -> Unit,
     onRemove: () -> Unit
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    val shape = RoundedCornerShape(8.dp)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(108.dp)) {
         Box(
             modifier = Modifier
                 .size(104.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(shape)
+                .then(
+                    if (review.verdict == PhotoVerdict.BLOCKED) Modifier.border(2.dp, MaterialTheme.colorScheme.error, shape)
+                    else Modifier
+                )
         ) {
             AsyncImage(
                 model = when (item) {
@@ -774,6 +820,18 @@ private fun PhotoThumb(
                     )
                 }
             }
+            if (review.verdict == PhotoVerdict.CHECKING) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.matchParentSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f))
+                ) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = Color.White,
+                        modifier = Modifier.size(24.dp).semantics { contentDescription = "Checking photo" }
+                    )
+                }
+            }
         }
         Row {
             IconButton(onClick = onMoveLeft, enabled = canMoveLeft, modifier = Modifier.size(36.dp)) {
@@ -784,6 +842,46 @@ private fun PhotoThumb(
             }
             IconButton(onClick = onMoveRight, enabled = canMoveRight, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Move right")
+            }
+        }
+        PhotoCheckResult(review, onUseAnyway)
+    }
+}
+
+/** Under a thumbnail: a green tick, or why the photo can't be used or needs "Use anyway". */
+@Composable
+private fun PhotoCheckResult(review: PhotoReview, onUseAnyway: () -> Unit) {
+    // Saved photos were published before the checks; nothing to show for them.
+    if (review.state == ReviewState.SAVED) return
+    val color = when (review.verdict) {
+        PhotoVerdict.BLOCKED -> MaterialTheme.colorScheme.error
+        PhotoVerdict.WARNING -> DzirentWarn
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    when (review.verdict) {
+        PhotoVerdict.CHECKING -> Unit
+        PhotoVerdict.PASSED -> Icon(
+            Icons.Default.CheckCircle,
+            contentDescription = "Photo passed the checks",
+            tint = DzirentPass,
+            modifier = Modifier.size(20.dp)
+        )
+        else -> {
+            review.messages.forEach { message ->
+                Text(text = message, style = MaterialTheme.typography.labelSmall, color = color, textAlign = TextAlign.Center)
+            }
+            when (review.verdict) {
+                PhotoVerdict.WARNING -> TextButton(
+                    onClick = onUseAnyway,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) { Text("Use anyway", style = MaterialTheme.typography.labelMedium) }
+                PhotoVerdict.USED_ANYWAY -> Text(
+                    text = "Used anyway",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = color
+                )
+                else -> Unit
             }
         }
     }
