@@ -54,8 +54,29 @@ end $$;
 revoke all on function public.search_listings_similar(text, int) from public, anon;
 grant execute on function public.search_listings_similar(text, int) to authenticated;
 
+-- 2) STYLES (optional, never used to hide anything; only to rank suggestions and for
+--    Home's "For your style" row). One fixed list, the same as FashionStyles.ALL in the app.
+--    style_interests sits in private_profiles, so only its owner can read it (the existing
+--    "manage own private profile" policy covers it).
+alter table public.private_profiles add column if not exists style_interests text[] not null default '{}'
+  constraint private_profiles_style_interests_check check (
+    style_interests <@ array['South Asian','East Asian','Southeast Asian','Middle Eastern','African',
+                             'Mexican & Latin American','Country & Western','Western formal',
+                             'Western casual']::text[]
+  );
+
+-- Up to 3 per listing, from the same list. Public like the rest of the listing.
+alter table public.listings add column if not exists listing_styles text[] not null default '{}'
+  constraint listings_listing_styles_check check (
+    cardinality(listing_styles) <= 3
+    and listing_styles <@ array['South Asian','East Asian','Southeast Asian','Middle Eastern','African',
+                                'Mexican & Latin American','Country & Western','Western formal',
+                                'Western casual']::text[]
+  );
+
 -- =====================================================================
 -- CHECK QUERIES (optional)
 -- =====================================================================
 -- select extname, extnamespace::regnamespace from pg_extension where extname = 'pg_trgm';
 -- select indexname from pg_indexes where tablename = 'listings' and indexname like '%trgm%';
+-- select listing_styles, count(*) from public.listings group by 1;

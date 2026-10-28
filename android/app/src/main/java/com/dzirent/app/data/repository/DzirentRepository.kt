@@ -384,13 +384,15 @@ class DzirentRepository {
     }
 
     /**
-     * Saves my body measurements (cm, null clears one) and my "I'm a" choice. The upsert
-     * creates my row the first time and otherwise changes only these columns.
+     * Saves my body measurements (cm, null clears one), my "I'm a" choice and the styles I'm
+     * interested in. The upsert creates my row the first time and otherwise changes only
+     * these columns.
      */
     suspend fun saveBodyMeasurements(
         userId: String,
         valuesCm: Map<BodyMeasurement, Double?>,
-        fitProfile: FitProfile?
+        fitProfile: FitProfile?,
+        styleInterests: List<String>
     ): PrivateProfile {
         return try {
             postgrest.from("private_profiles").upsert(
@@ -398,6 +400,7 @@ class DzirentRepository {
                     put("user_id", userId)
                     valuesCm.forEach { (measurement, cm) -> put(measurement.column, cm) }
                     put("fit_profile", fitProfile?.dbValue)
+                    put("style_interests", JsonArray(styleInterests.map { JsonPrimitive(it) }))
                 }
             ) { select() }.decodeSingle<PrivateProfile>()
         } catch (e: Exception) {
@@ -726,6 +729,7 @@ class DzirentRepository {
                     put("price_note", listing.priceNote)
                     put("retail_value", listing.retailValue)
                     put("deposit_note", listing.depositNote)
+                    put("listing_styles", JsonArray(listing.listingStyles.map { JsonPrimitive(it) }))
                     put("status", status)
                 }
             ) {

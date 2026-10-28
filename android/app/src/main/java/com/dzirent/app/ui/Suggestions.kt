@@ -54,7 +54,9 @@ fun rememberSuggestions(
         }
         val related = query.takeIf { it.isNotBlank() }?.let { SearchRelatedStore.get(context).lookup(it) }
         fun build(similar: List<Listing>, wider: List<Listing>) =
-            buildSuggestions(SuggestionInput(query, filters, dates, me, loaded, wider, similar, related, unit, LocalDate.now()))
+            buildSuggestions(
+                SuggestionInput(query, filters, dates, me, loaded, wider, similar, related, unit, LocalDate.now(), session.styleInterests())
+            )
         groups = build(emptyList(), emptyList())
         delay(SIMILAR_DEBOUNCE_MS)
         val similar = if (query.trim().length >= 3) runCatching { session.similarListings(query.trim(), lat, lng) }.getOrDefault(emptyList()) else emptyList()

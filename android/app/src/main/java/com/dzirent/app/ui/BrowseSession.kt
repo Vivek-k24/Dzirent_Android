@@ -64,6 +64,9 @@ class BrowseSession(
         }
     }
 
+    /** My "Styles you're interested in" (from private_profiles, loaded with the listings). */
+    fun styleInterests(): Set<String> = (state as? UiState.Success)?.data?.body?.styleInterests.orEmpty().toSet()
+
     /** Everything loaded for the current distance (before filters and dates). */
     fun loadedListings(): List<Listing> = (state as? UiState.Success)?.data?.listings.orEmpty()
 

@@ -64,7 +64,9 @@ data class PrivateProfile(
     /** When I last opened Inbox > Activity. */
     @SerialName("activity_seen_at") val activitySeenAt: String? = null,
     /** "I'm a" on My measurements: 'man', 'woman' or null. See [FitProfile]. */
-    @SerialName("fit_profile") val fitProfile: String? = null
+    @SerialName("fit_profile") val fitProfile: String? = null,
+    /** "Styles you're interested in" (007): only ranks suggestions and fills "For your style". */
+    @SerialName("style_interests") val styleInterests: List<String> = emptyList()
 ) {
     val fit: FitProfile? get() = FitProfile.fromDb(fitProfile)
 
@@ -112,6 +114,8 @@ data class Listing(
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("retail_value") val retailValue: Double? = null,
     @SerialName("deposit_note") val depositNote: String? = null,
+    /** Up to [com.dzirent.app.util.FashionStyles.LISTING_MAX] from FashionStyles.ALL (007). Not shown on cards. */
+    @SerialName("listing_styles") val listingStyles: List<String> = emptyList(),
     val photos: List<ListingPhoto> = emptyList(),
     val measurements: List<ListingMeasurement> = emptyList(),
     val availability: List<Availability> = emptyList(),

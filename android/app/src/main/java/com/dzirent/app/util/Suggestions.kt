@@ -46,7 +46,9 @@ data class SuggestionInput(
     val similar: List<Listing>,
     val related: RelatedMatch?,
     val distanceUnit: DistanceUnit,
-    val today: LocalDate
+    val today: LocalDate,
+    /** My "Styles you're interested in": pieces in these styles go first within a group. */
+    val styleInterests: Set<String> = emptySet()
 )
 
 /**
@@ -54,6 +56,7 @@ data class SuggestionInput(
  * once there are [SUGGESTIONS_MAX] pieces: a typo fix, related words, the category hint, then
  * each filter loosened on its own (other dates, wider distance, higher price, all categories,
  * any size), and finally the nearest pieces if nothing else matched. A piece appears once.
+ * Within a group, pieces in the styles I'm interested in come first.
  */
 fun buildSuggestions(input: SuggestionInput): List<SuggestionGroup> {
     val groups = mutableListOf<SuggestionGroup>()
@@ -62,7 +65,10 @@ fun buildSuggestions(input: SuggestionInput): List<SuggestionGroup> {
 
     fun add(step: SuggestionStep, reason: String, candidates: List<Listing>) {
         if (count >= SUGGESTIONS_MAX) return
-        val fresh = candidates.filter { it.lenderId != input.me && it.id !in taken }.take(SUGGESTIONS_MAX - count)
+        // Styles only reorder (stable, so nearest or best match stays next); nothing is dropped.
+        val fresh = candidates.filter { it.lenderId != input.me && it.id !in taken }
+            .sortedByDescending { styleOverlap(it.listingStyles, input.styleInterests) > 0 }
+            .take(SUGGESTIONS_MAX - count)
         if (fresh.isEmpty()) return
         groups += SuggestionGroup(step, reason, fresh)
         taken += fresh.map { it.id }

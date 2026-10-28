@@ -142,6 +142,25 @@ class SuggestionsTest {
     }
 
     @Test
+    fun myStylesComeFirstWithinAGroupButNothingIsDropped() {
+        val nearby = listOf(
+            listing("near", km = 1.0),
+            listing("styled-far", km = 5.0).copy(listingStyles = listOf("South Asian")),
+            listing("mid", km = 3.0)
+        )
+        val ranked = buildSuggestions(input(query = "zzz", nearby = nearby).copy(styleInterests = setOf("South Asian")))
+        assertEquals(listOf("styled-far", "near", "mid"), ranked.single().listings.map { it.id })
+        val plain = buildSuggestions(input(query = "zzz", nearby = nearby))
+        assertEquals(listOf("near", "mid", "styled-far"), plain.single().listings.map { it.id })
+    }
+
+    @Test
+    fun styleOverlapCounts() {
+        assertEquals(1, styleOverlap(listOf("South Asian", "Western formal"), setOf("South Asian")))
+        assertEquals(0, styleOverlap(listOf("South Asian"), emptySet()))
+    }
+
+    @Test
     fun priceRoundsUpToFiveDollars() {
         assertEquals(40.0, roundUpPrice(37.5), 0.0)
         assertEquals(40.0, roundUpPrice(40.0), 0.0)
