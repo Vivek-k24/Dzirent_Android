@@ -35,6 +35,15 @@ class HomeSectionsTest {
         buildHomeSections(listings, "me", BrowseFilters(), dates, body, saved, now)
 
     @Test
+    fun anyDatesIgnoresAvailability() {
+        val booked = listing("booked", available = "2026-11-10" to "2026-11-20")
+        val free = listing("free")
+        assertEquals(listOf("free"), build(listOf(booked, free)).visible.map { it.id })
+        val anyDates = buildHomeSections(listOf(booked, free), "me", BrowseFilters(), null, noBody, emptySet(), now)
+        assertEquals(setOf("booked", "free"), anyDates.visible.map { it.id }.toSet())
+    }
+
+    @Test
     fun myOwnListingsAreLeftOut() {
         val sections = build(listOf(listing("a"), listing("mine", lender = "me")))
         assertEquals(listOf("a"), sections.visible.map { it.id })

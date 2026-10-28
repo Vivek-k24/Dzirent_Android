@@ -68,8 +68,11 @@ class BrowseSession(
         loadedFor = null
     }
 
-    /** Home's rows and tabs for the current filters and dates, once loaded. */
-    fun sections(): HomeSections? = (state as? UiState.Success)?.data?.let {
-        buildHomeSections(it.listings, userId, filters, dates, it.body, it.savedStudioIds)
+    /**
+     * Home's rows and tabs for the current filters and dates, once loaded. [anyDates]
+     * (Search only) ignores the date range.
+     */
+    fun sections(anyDates: Boolean = false): HomeSections? = (state as? UiState.Success)?.data?.let {
+        buildHomeSections(it.listings, userId, filters, if (anyDates) null else dates, it.body, it.savedStudioIds)
     }
 }

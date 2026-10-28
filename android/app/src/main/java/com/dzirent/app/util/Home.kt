@@ -49,19 +49,23 @@ private fun Listing.distanceOrMax(): Double = distanceKm ?: Double.MAX_VALUE
 
 /**
  * Home's rows and tabs. Leaves out my own listings, and anything that doesn't match
- * [filters] or isn't available for every day of [dates].
+ * [filters] or isn't available for every day of [dates]. Null [dates] ("Any dates", only
+ * in Search) ignores availability.
  */
 fun buildHomeSections(
     listings: List<Listing>,
     me: String,
     filters: BrowseFilters,
-    dates: DateRange,
+    dates: DateRange?,
     body: PrivateProfile,
     savedStudioIds: Set<String>,
     now: OffsetDateTime = OffsetDateTime.now()
 ): HomeSections {
     val visible = listings
-        .filter { it.lenderId != me && it.matchesFilters(filters) && isAvailableFor(it.availabilityWindows(), dates) }
+        .filter {
+            it.lenderId != me && it.matchesFilters(filters) &&
+                (dates == null || isAvailableFor(it.availabilityWindows(), dates))
+        }
         .sortedByDescending { timestampMillis(it.createdAt) }
     val newSince = now.minusDays(NEW_NEAR_YOU_DAYS).toInstant().toEpochMilli()
     return HomeSections(

@@ -71,6 +71,8 @@ fun SearchScreen(
     var sort by rememberSaveable { mutableStateOf(SearchSort.NEAREST) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    // Search can drop the date range ("Any dates"); Home always keeps one.
+    var anyDates by rememberSaveable { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -97,6 +99,7 @@ fun SearchScreen(
             onDismiss = { showDatePicker = false },
             onConfirm = { range ->
                 session.dates = range
+                anyDates = false
                 showDatePicker = false
             }
         )
@@ -157,13 +160,26 @@ fun SearchScreen(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // The date range always applies, so its chip changes it rather than removing it.
-            item {
-                AssistChip(
-                    onClick = { showDatePicker = true },
-                    label = { Text(formatDateChip(session.dates)) },
-                    leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                )
+            // The dates are a removable chip like the other filters; without them, availability
+            // is ignored and the chip offers to pick dates again.
+            item(key = "dates") {
+                if (anyDates) {
+                    AssistChip(
+                        onClick = { showDatePicker = true },
+                        label = { Text("Any dates") },
+                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    )
+                } else {
+                    InputChip(
+                        selected = false,
+                        onClick = { anyDates = true },
+                        label = { Text(formatDateChip(session.dates)) },
+                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        trailingIcon = {
+                            Icon(Icons.Default.Close, contentDescription = "Remove dates", modifier = Modifier.size(16.dp))
+                        }
+                    )
+                }
             }
             items(chips, key = { it.label }) { chip ->
                 InputChip(
@@ -179,8 +195,8 @@ fun SearchScreen(
             is UiState.Loading -> LoadingView(message = "Searching...")
             is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { session.load(lat, lng, radiusKm, force = true) } })
             is UiState.Success -> {
-                val results = remember(state, session.filters, session.dates, query, sort) {
-                    sortSearchResults(session.sections()?.visible.orEmpty().filter { it.matchesQuery(query) }, sort)
+                val results = remember(state, session.filters, session.dates, anyDates, query, sort) {
+                    sortSearchResults(session.sections(anyDates)?.visible.orEmpty().filter { it.matchesQuery(query) }, sort)
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
