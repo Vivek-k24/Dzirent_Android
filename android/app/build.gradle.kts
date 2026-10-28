@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,18 +7,65 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+val rootRepoLocalPropertiesFile = rootProject.file("../local.properties")
+
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+} else if (rootRepoLocalPropertiesFile.exists()) {
+    rootRepoLocalPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+
+val supabaseUrlProperty: String? = localProperties.getProperty("SUPABASE_URL")?.takeIf { it.isNotBlank() }
+val supabaseAnonKeyProperty: String? = localProperties.getProperty("SUPABASE_ANON_KEY")?.takeIf { it.isNotBlank() }
+
+// Placeholders keep debug builds compiling; release builds refuse them (see below).
+val supabaseUrl: String = supabaseUrlProperty ?: "https://your-project-id.supabase.co"
+val supabaseAnonKey: String = supabaseAnonKeyProperty ?: "your-anon-key-here"
+
+val missingSupabaseProperties: List<String> = listOfNotNull(
+    "SUPABASE_URL".takeIf { supabaseUrlProperty == null },
+    "SUPABASE_ANON_KEY".takeIf { supabaseAnonKeyProperty == null },
+)
+
+val requireReleaseSupabaseConfig by tasks.registering {
+    description = "Fails release builds that would embed placeholder Supabase configuration."
+    val missing = missingSupabaseProperties
+    doLast {
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Release build requires ${missing.joinToString(" and ")} in local.properties " +
+                    "(android/local.properties or the repository root local.properties). " +
+                    "Refusing to build a release APK with placeholder Supabase values."
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(requireReleaseSupabaseConfig)
+}
+
+// Google Play rejects an upload whose versionCode is not higher than every earlier one,
+// so CI builds use the workflow run number. Local builds keep the fixed value.
+val appVersionCode: Int = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.dzirent.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.dzirent.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
+        targetSdk = 36
+        versionCode = appVersionCode
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {
@@ -37,6 +86,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -74,4 +124,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation(libs.junit)
 }

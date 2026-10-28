@@ -1,0 +1,212 @@
+-- =====================================================================
+-- Dzirent Android pilot: 004 home, saved items and events
+-- Run in Supabase > SQL Editor AFTER 003_cities_and_accessories.sql.
+-- Safe to re-run: every statement uses if not exists / or replace /
+-- drop ... if exists.
+-- =====================================================================
+
+-- 1) PRICE: the lender's price per rental, in US dollars. Required by the app for new and
+-- edited listings; NULL only on listings created before this column existed.
+-- price_note stays as optional free-text details ("plus cleaning", "weekly discount").
+alter table public.listings
+  add column if not exists price_usd numeric
+    constraint listings_price_usd_positive check (price_usd > 0);
+
+-- 2) SAVED PIECES AND STUDIOS: private bookmarks. Each user sees and changes only their
+-- own rows, and there is no function that counts other people's saves.
+create table if not exists public.saved_listings (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  listing_id uuid not null references public.listings(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, listing_id)
+);
+
+create table if not exists public.saved_studios (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  lender_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, lender_id),
+  constraint saved_studios_not_self check (user_id <> lender_id)
+);
+
+alter table public.saved_listings enable row level security;
+alter table public.saved_studios enable row level security;
+
+drop policy if exists "manage own saved listings" on public.saved_listings;
+create policy "manage own saved listings" on public.saved_listings for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "manage own saved studios" on public.saved_studios;
+create policy "manage own saved studios" on public.saved_studios for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Lookups go by the listing / lender when one is deleted (cascade).
+create index if not exists saved_listings_listing_id_idx on public.saved_listings (listing_id);
+create index if not exists saved_studios_lender_id_idx on public.saved_studios (lender_id);
+
+-- 3) LISTING EVENTS: views, saves and chats started, kept for future personalization.
+-- Users can only add their own events and can never read any back (no select policy).
+create table if not exists public.listing_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  listing_id uuid not null references public.listings(id) on delete cascade,
+  type text not null constraint listing_events_type_check check (type in ('view','save','message')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.listing_events enable row level security;
+
+drop policy if exists "add own events" on public.listing_events;
+create policy "add own events" on public.listing_events for insert to authenticated
+  with check (user_id = auth.uid());
+
+create index if not exists listing_events_user_created_idx on public.listing_events (user_id, created_at);
+create index if not exists listing_events_listing_id_idx on public.listing_events (listing_id);
+
+-- 4) PRIVATE PROFILE: data only its owner may read. Every signed-in user can read every
+-- profiles row (001 "read profiles"), so this does not go on profiles.
+-- Body measurements are optional, in centimeters (Profile > My measurements).
+-- activity_seen_at is when the user last opened Inbox > Activity (section 5).
+-- The app creates the row with an upsert the first time it saves something.
+create table if not exists public.private_profiles (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  chest_cm numeric constraint private_profiles_chest_cm_range check (chest_cm > 0 and chest_cm < 300),
+  waist_cm numeric constraint private_profiles_waist_cm_range check (waist_cm > 0 and waist_cm < 300),
+  hips_cm numeric constraint private_profiles_hips_cm_range check (hips_cm > 0 and hips_cm < 300),
+  shoulder_cm numeric constraint private_profiles_shoulder_cm_range check (shoulder_cm > 0 and shoulder_cm < 300),
+  height_cm numeric constraint private_profiles_height_cm_range check (height_cm > 0 and height_cm < 300),
+  inseam_cm numeric constraint private_profiles_inseam_cm_range check (inseam_cm > 0 and inseam_cm < 300),
+  activity_seen_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.private_profiles enable row level security;
+
+drop policy if exists "manage own private profile" on public.private_profiles;
+create policy "manage own private profile" on public.private_profiles for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Keep updated_at current on every update.
+create or replace function public.set_updated_at() returns trigger
+language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end; $$;
+
+drop trigger if exists private_profiles_set_updated_at on public.private_profiles;
+create trigger private_profiles_set_updated_at before update on public.private_profiles
+for each row execute function public.set_updated_at();
+
+-- 5) READ STATE for the Inbox dot: when each person last opened each conversation.
+-- (When they last looked at the Activity tab is private_profiles.activity_seen_at.)
+create table if not exists public.conversation_reads (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (user_id, conversation_id)
+);
+
+alter table public.conversation_reads enable row level security;
+
+-- Own rows only, and only for conversations the user takes part in.
+drop policy if exists "manage own conversation reads" on public.conversation_reads;
+create policy "manage own conversation reads" on public.conversation_reads for all to authenticated
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.conversations c
+                where c.id = conversation_reads.conversation_id
+                  and auth.uid() in (c.renter_id, c.lender_id))
+  );
+
+create index if not exists conversation_reads_conversation_id_idx on public.conversation_reads (conversation_id);
+
+-- 6) MARK AS READ / SEEN with the server's clock, so a phone with a wrong clock can't hide
+-- or invent unread messages. Security invoker: the RLS policies above still apply.
+create or replace function public.mark_conversation_read(p_conversation_id uuid) returns void
+language sql security invoker set search_path = '' as $$
+  insert into public.conversation_reads (user_id, conversation_id, last_read_at)
+  values (auth.uid(), p_conversation_id, now())
+  on conflict (user_id, conversation_id) do update set last_read_at = now();
+$$;
+
+create or replace function public.mark_activity_seen() returns void
+language sql security invoker set search_path = '' as $$
+  insert into public.private_profiles (user_id, activity_seen_at)
+  values (auth.uid(), now())
+  on conflict (user_id) do update set activity_seen_at = now();
+$$;
+
+revoke all on function public.mark_conversation_read(uuid) from public, anon;
+grant execute on function public.mark_conversation_read(uuid) to authenticated;
+revoke all on function public.mark_activity_seen() from public, anon;
+grant execute on function public.mark_activity_seen() to authenticated;
+
+-- 7) STUDIO PAGE: what lenders set in Profile > My studio. All optional; the page shows
+-- only what is filled in. Public like the rest of profiles.
+alter table public.profiles add column if not exists studio_name text
+  constraint profiles_studio_name_length check (char_length(studio_name) between 1 and 40);
+-- @handle: 3-30 lowercase letters, numbers, dots and underscores; unique.
+alter table public.profiles add column if not exists studio_handle text
+  constraint profiles_studio_handle_format check (studio_handle ~ '^[a-z0-9._]{3,30}$');
+create unique index if not exists profiles_studio_handle_key on public.profiles (studio_handle);
+alter table public.profiles add column if not exists studio_bio text
+  constraint profiles_studio_bio_length check (char_length(studio_bio) <= 200);
+-- Up to 5 tags from the fixed list (same list as StyleTags.ALL in the app).
+alter table public.profiles add column if not exists style_tags text[] not null default '{}'
+  constraint profiles_style_tags_check check (
+    cardinality(style_tags) <= 5
+    and style_tags <@ array['Minimalist','Classic','Vintage','Streetwear','Boho','Glam','Traditional',
+                            'Workwear','Designer','Plus size','Petite','Maternity']::text[]
+  );
+alter table public.profiles add column if not exists pickup_area text
+  constraint profiles_pickup_area_length check (char_length(pickup_area) <= 60);
+
+-- "Rented N times": this lender's rentals marked active or returned (never cancelled).
+-- rentals is private to the two participants, so only the number is exposed.
+create or replace function public.studio_rental_count(p_lender_id uuid) returns integer
+language sql stable security definer set search_path = '' as $$
+  select count(*)::int from public.rentals r
+  where r.lender_id = p_lender_id and r.status in ('active', 'returned');
+$$;
+
+-- "Typical reply time": median minutes from a renter's first message to the lender's first
+-- reply after it, over chats started in the last 90 days. NULL with fewer than 3 replies,
+-- so one slow or fast chat doesn't define a studio. Only the number is exposed.
+create or replace function public.studio_reply_minutes(p_lender_id uuid) returns integer
+language sql stable security definer set search_path = '' as $$
+  with asked as (
+    select c.id,
+           (select min(m.created_at) from public.messages m
+            where m.conversation_id = c.id and m.sender_id = c.renter_id) as asked_at
+    from public.conversations c
+    where c.lender_id = p_lender_id and c.created_at > now() - interval '90 days'
+  ), replies as (
+    select extract(epoch from (
+             (select min(m.created_at) from public.messages m
+              where m.conversation_id = a.id and m.sender_id = p_lender_id and m.created_at > a.asked_at)
+             - a.asked_at)) / 60 as minutes
+    from asked a
+    where a.asked_at is not null
+  )
+  select case when count(minutes) >= 3
+              then round(percentile_cont(0.5) within group (order by minutes))::int end
+  from replies;
+$$;
+
+revoke all on function public.studio_rental_count(uuid) from public, anon;
+grant execute on function public.studio_rental_count(uuid) to authenticated;
+revoke all on function public.studio_reply_minutes(uuid) from public, anon;
+grant execute on function public.studio_reply_minutes(uuid) to authenticated;
+
+-- =====================================================================
+-- CHECK QUERIES (optional)
+-- =====================================================================
+-- select count(*) filter (where price_usd is null) as no_price, count(*) from public.listings;
+-- select tablename, policyname, cmd from pg_policies
+--   where tablename in ('saved_listings','saved_studios','listing_events','conversation_reads',
+--                       'private_profiles')
+--   order by 1, 2;
+-- select type, count(*) from public.listing_events group by 1;   -- as the dashboard owner
+-- select id, studio_handle, studio_name, style_tags from public.profiles where studio_handle is not null;

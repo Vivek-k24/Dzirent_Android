@@ -1,0 +1,211 @@
+name: Build and publish signed Android release (APK + AAB)
+
+on:
+  push:
+    branches:
+      - "android*"
+    paths:
+      - "android/**"
+      - ".github/workflows/build-android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One group for all branches: builds share the run-number versionCode and the Play
+# internal track, so they must finish in order.
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Name the build after the branch
+        run: |
+          set -euo pipefail
+          # Branch names may contain characters that are not safe in file names or tags.
+          BRANCH="$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')"
+          echo "BRANCH_NAME=$BRANCH" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=Dzirent-$BRANCH-release" >> "$GITHUB_ENV"
+          echo "Building $GITHUB_REF_NAME as Dzirent-$BRANCH-release"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Require Supabase connection configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_ANON_KEY" ]]; then
+            echo "::error::Cannot publish a working APK: set SUPABASE_URL and SUPABASE_ANON_KEY in repository Actions secrets first."
+            exit 1
+          fi
+          if [[ ! "$SUPABASE_URL" =~ ^https://[a-z0-9-]+\.supabase\.co/?$ ]]; then
+            echo "::error::SUPABASE_URL must be a real project URL of the form https://project-ref.supabase.co."
+            exit 1
+          fi
+          if [[ "$SUPABASE_ANON_KEY" == sb_secret_* ]]; then
+            echo "::error::Never embed a Supabase secret or service_role key in an APK. Use the publishable or legacy anon key."
+            exit 1
+          fi
+          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > android/local.properties
+
+      - name: Build unsigned release APK and app bundle (not debug)
+        working-directory: android
+        run: |
+          # The checked-in daemon config pins a JetBrains JDK 21 only available
+          # locally. Gradle and the Android project build with JDK 17 in CI.
+          rm -f gradle/gradle-daemon-jvm.properties
+          # versionCode comes from GITHUB_RUN_NUMBER (see app/build.gradle.kts).
+          echo "versionCode: $GITHUB_RUN_NUMBER"
+          bash ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
+
+      - name: Prepare release signing key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYSTORE="$RUNNER_TEMP/dzirent-release.jks"
+          if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
+            echo "::error::Permanent release signing is required. Configure the four ANDROID_RELEASE_* GitHub Actions secrets. Never use a temporary per-build certificate."
+            exit 1
+          fi
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          echo "Using configured, permanent Android release signing key."
+          echo "DZIRENT_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "DZIRENT_KEY_ALIAS=$RELEASE_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "DZIRENT_STORE_PASSWORD=$RELEASE_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "DZIRENT_KEY_PASSWORD=$RELEASE_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Zipalign, sign and verify release APK
+        run: |
+          set -euo pipefail
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          UNSIGNED=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$UNSIGNED"
+          "$TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/dzirent-aligned.apk"
+          "$TOOLS/apksigner" sign \
+            --ks "$DZIRENT_KEYSTORE" \
+            --ks-key-alias "$DZIRENT_KEY_ALIAS" \
+            --ks-pass "env:DZIRENT_STORE_PASSWORD" \
+            --key-pass "env:DZIRENT_KEY_PASSWORD" \
+            --out "$RELEASE_NAME.apk" \
+            "$RUNNER_TEMP/dzirent-aligned.apk"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$RELEASE_NAME.apk"
+          test -s "$RELEASE_NAME.apk"
+          sha256sum "$RELEASE_NAME.apk"
+          ls -lh "$RELEASE_NAME.apk"
+
+      - name: Sign and verify release app bundle
+        run: |
+          set -euo pipefail
+          # Same permanent key as the APK. On Google Play it is the upload key.
+          UNSIGNED=android/app/build/outputs/bundle/release/app-release.aab
+          test -s "$UNSIGNED"
+          cp "$UNSIGNED" "$RELEASE_NAME.aab"
+          jarsigner \
+            -keystore "$DZIRENT_KEYSTORE" \
+            -storepass:env DZIRENT_STORE_PASSWORD \
+            -keypass:env DZIRENT_KEY_PASSWORD \
+            -sigalg SHA256withRSA \
+            -digestalg SHA-256 \
+            "$RELEASE_NAME.aab" \
+            "$DZIRENT_KEY_ALIAS"
+          # -strict would fail on the self-signed certificate, and plain -verify also
+          # exits 0 for an unsigned file, so check its output instead.
+          jarsigner -verify "$RELEASE_NAME.aab" | tee "$RUNNER_TEMP/aab-verify.txt"
+          grep -qx "jar verified." "$RUNNER_TEMP/aab-verify.txt"
+          keytool -printcert -jarfile "$RELEASE_NAME.aab"
+          sha256sum "$RELEASE_NAME.aab"
+          ls -lh "$RELEASE_NAME.aab"
+
+      - name: Upload GitHub Actions backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_NAME }}
+          path: |
+            ${{ env.RELEASE_NAME }}.apk
+            ${{ env.RELEASE_NAME }}.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish direct-download GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${BRANCH_NAME}-build-${GITHUB_RUN_NUMBER}"
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          Signed Android release APK from branch ${GITHUB_REF_NAME} (not a debug APK).
+          Install directly on Android 8.0 or newer.
+
+          The .aab is the same build as an Android App Bundle for Google Play
+          (versionCode = this build number). Phones cannot install it directly.
+
+          Note: This is an installable distribution, not a claim that backend
+          integration is deployed or verified. The checked-in app depends on
+          Supabase build-time configuration. If the repository has no
+          SUPABASE_URL and SUPABASE_ANON_KEY Actions secrets, account and
+          data features will not work. To preserve Android update compatibility,
+          configure a permanent signing keystore and the four corresponding
+          ANDROID_RELEASE_* secrets.
+          EOF
+          gh release create "$TAG" "$RELEASE_NAME.apk" "$RELEASE_NAME.aab" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Dzirent Android signed APK — $GITHUB_REF_NAME build $GITHUB_RUN_NUMBER" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest
+
+      # Secrets cannot be used in a step's `if:`, so this step exposes only whether it is set.
+      - name: Check for Google Play service account
+        id: play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [[ -n "$PLAY_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PLAY_SERVICE_ACCOUNT_JSON is not set; skipping the Google Play upload. See docs/PLAY_INTERNAL_TESTING.md."
+          fi
+
+      - name: Upload app bundle to Google Play internal testing
+        if: steps.play.outputs.configured == 'true'
+        # v1.1.5, pinned to a commit because this step receives the service account key.
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.dzirent.app
+          releaseFiles: ${{ env.RELEASE_NAME }}.aab
+          track: internal
+          # "completed" rolls out to internal testers at once. Set the repository variable
+          # PLAY_RELEASE_STATUS to "draft" while Play still treats the app as a draft app.
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}

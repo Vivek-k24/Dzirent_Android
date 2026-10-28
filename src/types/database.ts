@@ -107,7 +107,7 @@ export const CATEGORIES = [
   'Cultural & Traditional',
   'Everyday',
   'Outerwear',
-  'Bags & Accessories',
+  'Accessories',
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
@@ -118,5 +118,5 @@ export const CATEGORY_MEASUREMENT_SUGGESTIONS: Record<string, string[]> = {
   'Cultural & Traditional': ['Chest/Bust', 'Waist', 'Kurta/Top Length', 'Bottom Length', 'Shoulder'],
   'Everyday': ['Chest', 'Length', 'Waist', 'Inseam'],
   'Outerwear': ['Chest', 'Shoulder', 'Sleeve Length', 'Total Length'],
-  'Bags & Accessories': ['Width', 'Height', 'Depth', 'Strap Drop'],
+  'Accessories': ['Width', 'Height', 'Depth', 'Strap Drop'],
 };

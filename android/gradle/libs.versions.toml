@@ -1,5 +1,5 @@
 [versions]
-agp = "8.7.3"
+agp = "8.10.1"
 kotlin = "2.1.0"
 coreKtx = "1.15.0"
 lifecycleRuntimeKtx = "2.8.7"
@@ -12,6 +12,7 @@ ktor = "3.0.3"
 coil = "2.7.0"
 playServicesLocation = "21.3.0"
 coroutines = "1.10.1"
+junit = "4.13.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,6 +46,9 @@ play-services-location = { group = "com.google.android.gms", name = "play-servic
 
 # Kotlinx Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# Unit tests for pure logic
+junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
