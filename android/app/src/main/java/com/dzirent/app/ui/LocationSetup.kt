@@ -18,6 +18,7 @@ import com.dzirent.app.data.model.Profile
 import com.dzirent.app.data.model.UsCity
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.ApproxPlace
+import com.dzirent.app.util.DistanceUnit
 import com.dzirent.app.util.LocationService
 import kotlinx.coroutines.launch
 
@@ -103,7 +104,7 @@ fun LocationSetupDialog(
             Column {
                 when (step) {
                     LocationStep.Reason -> {
-                        Text(LOCATION_REASON)
+                        Text(locationReason(LocalAppSettings.current.distanceUnit))
                     }
                     LocationStep.Working -> {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -131,7 +132,7 @@ fun LocationSetupDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("We'll save your area, rounded to about 1 km. Never your exact address.")
+                        Text("We'll save your area, rounded to ${LocalAppSettings.current.distanceUnit.locationPrecision}. Never your exact address.")
                     }
                 }
                 if (isSaving) {
@@ -184,5 +185,5 @@ fun LocationSetupDialog(
     )
 }
 
-private const val LOCATION_REASON =
-    "Dzirent uses your approximate location (about 1 km) to show clothes near you."
+private fun locationReason(unit: DistanceUnit) =
+    "Dzirent uses your approximate location (${unit.locationPrecision}) to show clothes near you."

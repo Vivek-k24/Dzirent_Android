@@ -28,7 +28,8 @@ import com.dzirent.app.data.model.Listing
 import com.dzirent.app.data.model.Profile
 import com.dzirent.app.ui.theme.DzirentAccent
 import com.dzirent.app.util.BrowseFilters
-import com.dzirent.app.util.DISTANCE_OPTIONS_KM
+import com.dzirent.app.util.DISTANCE_STEPS
+import com.dzirent.app.util.DistanceUnit
 import com.dzirent.app.util.GuideTarget
 import com.dzirent.app.util.HOME_ROW_MIN
 import com.dzirent.app.util.HomeRow
@@ -60,9 +61,11 @@ fun HomeScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var studiosTab by rememberSaveable { mutableStateOf(false) }
+    val unit = LocalAppSettings.current.distanceUnit
+    val radiusKm = unit.radiusKm(session.filters.distanceStep)
 
-    LaunchedEffect(lat, lng, session.filters.radiusKm) {
-        if (lat != null && lng != null) session.load(lat, lng)
+    LaunchedEffect(lat, lng, radiusKm) {
+        if (lat != null && lng != null) session.load(lat, lng, radiusKm)
     }
 
     if (showDatePicker) {
@@ -96,7 +99,7 @@ fun HomeScreen(
 
         when (val state = session.state) {
             is UiState.Loading -> LoadingView(message = "Finding pieces near you...")
-            is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { session.load(lat, lng, force = true) } })
+            is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { session.load(lat, lng, radiusKm, force = true) } })
             is UiState.Success -> {
                 val sections = remember(state, session.filters, session.dates) { session.sections() } ?: return@Column
                 PullToRefreshBox(
@@ -104,7 +107,7 @@ fun HomeScreen(
                     onRefresh = {
                         scope.launch {
                             refreshing = true
-                            session.load(lat, lng, force = true)
+                            session.load(lat, lng, radiusKm, force = true)
                             refreshing = false
                         }
                     },
@@ -116,13 +119,14 @@ fun HomeScreen(
                         studiosTab = studiosTab,
                         onTabChange = { studiosTab = it },
                         filters = session.filters,
+                        distanceUnit = unit,
                         dateText = formatDateChip(session.dates),
                         onOpenListing = onOpenListing,
                         onOpenStudio = onOpenStudio,
                         onSeeAll = onSeeAll,
                         onOpenMeasurements = onOpenMeasurements,
-                        onClearFilters = { session.filters = BrowseFilters(radiusKm = session.filters.radiusKm) },
-                        onWiden = { session.filters = session.filters.copy(radiusKm = DISTANCE_OPTIONS_KM.last()) },
+                        onClearFilters = { session.filters = BrowseFilters(distanceStep = session.filters.distanceStep) },
+                        onWiden = { session.filters = session.filters.copy(distanceStep = DISTANCE_STEPS.last) },
                         onChangeDates = { showDatePicker = true }
                     )
                 }
@@ -227,6 +231,7 @@ private fun HomeContent(
     studiosTab: Boolean,
     onTabChange: (Boolean) -> Unit,
     filters: BrowseFilters,
+    distanceUnit: DistanceUnit,
     dateText: String,
     onOpenListing: (String) -> Unit,
     onOpenStudio: ((String) -> Unit)?,
@@ -267,18 +272,18 @@ private fun HomeContent(
         }
         if (sections.visible.isEmpty()) {
             fullWidth("empty") {
-                val filtered = filters != BrowseFilters(radiusKm = filters.radiusKm)
-                val widest = DISTANCE_OPTIONS_KM.last()
+                val filtered = filters != BrowseFilters(distanceStep = filters.distanceStep)
+                val widest = DISTANCE_STEPS.last
                 NothingHere(
-                    text = "Nothing near you is available $dateText within ${filters.radiusKm} km.",
+                    text = "Nothing near you is available $dateText within ${distanceUnit.optionLabel(filters.distanceStep)}.",
                     actionLabel = when {
                         filtered -> "Clear filters"
-                        filters.radiusKm < widest -> "Show $widest km"
+                        filters.distanceStep < widest -> "Show ${distanceUnit.optionLabel(widest)}"
                         else -> "Change dates"
                     },
                     onAction = when {
                         filtered -> onClearFilters
-                        filters.radiusKm < widest -> onWiden
+                        filters.distanceStep < widest -> onWiden
                         else -> onChangeDates
                     }
                 )
@@ -375,7 +380,7 @@ fun StudioCard(studio: StudioSummary, onClick: (() -> Unit)?) {
         Text(
             text = listOfNotNull(
                 "${studio.pieceCount} ${if (studio.pieceCount == 1) "piece" else "pieces"}",
-                studio.distanceKm?.let { formatDistance(it) }
+                studio.distanceKm?.let { formatDistance(it, LocalAppSettings.current.distanceUnit) }
             ).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant

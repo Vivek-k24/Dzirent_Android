@@ -39,6 +39,7 @@ import com.dzirent.app.data.PhotoItem
 import com.dzirent.app.data.PublishStepException
 import com.dzirent.app.data.model.*
 import com.dzirent.app.data.repository.DzirentRepository
+import com.dzirent.app.util.DistanceUnit
 import com.dzirent.app.util.parseDateRange
 import com.dzirent.app.util.parsePrice
 import com.dzirent.app.util.priceInputText
@@ -50,8 +51,8 @@ import java.util.UUID
 const val MAX_PHOTOS = 6
 private const val DEPOSIT_NOTE_MAX = 120
 private const val PRICE_NOTE_MAX = 60
-private const val NO_LOCATION_TO_PUBLISH =
-    "Set your location before publishing. Listings show your approximate area (about 1 km), never your exact address."
+private fun noLocationToPublish(unit: DistanceUnit) =
+    "Set your location before publishing. Listings show your approximate area (${unit.locationPrecision}), never your exact address."
 
 /**
  * Create (listingId == null) or edit a listing. Editing loads the listing first and is
@@ -158,8 +159,10 @@ private fun ListingEditorForm(
     var retailValueText by rememberSaveable { mutableStateOf(original?.retailValue?.let { formatNumber(it) }.orEmpty()) }
     var depositNote by rememberSaveable { mutableStateOf(original?.depositNote.orEmpty()) }
     var photos by remember { mutableStateOf<List<PhotoItem>>(original?.photos.orEmpty().map { PhotoItem.Existing(it) }) }
-    // One unit per listing; inches by default for the US pilot.
-    var unit by rememberSaveable { mutableStateOf(original?.measurements?.firstOrNull()?.unit ?: "in") }
+    // One unit per listing: an existing listing keeps its own, a new one starts in the unit
+    // from Settings > Preferences.
+    val settings = LocalAppSettings.current
+    var unit by rememberSaveable { mutableStateOf(original?.measurements?.firstOrNull()?.unit ?: settings.measureUnit.key) }
     var measurementRows by remember {
         mutableStateOf(original?.measurements.orEmpty().map { MeasurementRow(it.id, it.label, formatNumber(it.value)) })
     }
@@ -172,7 +175,7 @@ private fun ListingEditorForm(
     var publishState by remember { mutableStateOf<PublishState>(PublishState.Idle) }
 
     fun validate(): String? {
-        if (isNew && !profile.hasLocation) return NO_LOCATION_TO_PUBLISH
+        if (isNew && !profile.hasLocation) return noLocationToPublish(settings.distanceUnit)
         if (photos.isEmpty()) return "Add at least one photo."
         if (photos.size > MAX_PHOTOS) return "You can add up to $MAX_PHOTOS photos."
         if (title.trim().length !in 3..80) return "Title must be 3 to 80 characters."
@@ -302,7 +305,7 @@ private fun ListingEditorForm(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = NO_LOCATION_TO_PUBLISH, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(text = noLocationToPublish(LocalAppSettings.current.distanceUnit), color = MaterialTheme.colorScheme.onErrorContainer)
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(onClick = onSetLocation) { Text("Set my location") }
                 }
@@ -310,7 +313,7 @@ private fun ListingEditorForm(
         } else {
             val city = if (isNew) profile.city else original?.city.orEmpty()
             Text(
-                text = "Shown near ${city.ifBlank { "your area" }} (approximate, about 1 km)",
+                text = "Shown near ${city.ifBlank { "your area" }} (approximate, ${LocalAppSettings.current.distanceUnit.locationPrecision})",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 12.dp)

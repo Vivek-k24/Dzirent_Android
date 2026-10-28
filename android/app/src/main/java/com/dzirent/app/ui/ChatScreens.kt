@@ -31,6 +31,9 @@ import com.dzirent.app.data.repository.InboxSnapshot
 import com.dzirent.app.util.ActivityItem
 import com.dzirent.app.util.DateRange
 import com.dzirent.app.util.FOLLOW_UP_AFTER_DAYS
+import com.dzirent.app.util.chatDatesLine
+import com.dzirent.app.util.datesAsked
+import com.dzirent.app.util.datesQuestion
 import com.dzirent.app.util.daysSince
 import com.dzirent.app.util.formatInboxTime
 import com.dzirent.app.util.formatMessageTime
@@ -253,7 +256,7 @@ private fun InboxRow(conv: Conversation, currentUserId: String, unread: Boolean,
 
 // --- CHAT SCREEN ---
 
-private val QUICK_REPLIES = listOf("Is this available on these dates?", "Can I see more photos?")
+private const val PHOTOS_QUESTION = "Can I see more photos?"
 private const val MESSAGE_MAX = 2000
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -264,6 +267,8 @@ fun ChatScreen(
     currentUserId: String,
     onBack: () -> Unit,
     onOpenListing: (listingId: String) -> Unit,
+    /** Home's current date range: the chat chip asks about it. */
+    myDates: DateRange,
     /** Text to start the message box with, e.g. a question about dates. */
     initialDraft: String? = null
 ) {
@@ -362,6 +367,18 @@ fun ChatScreen(
                 merge(listOf(repository.sendMessage(conversationId, currentUserId, body)))
                 // Keep anything typed while sending; clear only the text we sent.
                 if (input.trim() == body) input = ""
+                // A dates question from the renter saves its dates for both people to see.
+                val conv = conversation
+                val asked = datesAsked(body, myDates)
+                if (conv != null && conv.renterId == currentUserId && asked != null && asked != conv.requestedDates &&
+                    repository.setConversationDates(conversationId, asked)
+                ) {
+                    (uiState as? UiState.Success)?.let { current ->
+                        uiState = UiState.Success(
+                            current.data.copy(requestedStart = asked.start.toString(), requestedEnd = asked.end.toString())
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 sendError = e.userMessage("Couldn't send your message. Please try again.")
             }
@@ -532,7 +549,11 @@ fun ChatScreen(
             is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { loadAll() } })
             is UiState.Success -> {
                 val conv = state.data
-                PinnedListing(listing = conv.listing, onClick = { onOpenListing(conv.listingId) })
+                PinnedListing(
+                    listing = conv.listing,
+                    datesLine = chatDatesLine(conv.requestedDates, iAmRenter = conv.renterId == currentUserId),
+                    onClick = { onOpenListing(conv.listingId) }
+                )
                 rental?.let { RentalBanner(it, currentUserId, otherName) }
                 if (iBlocked) {
                     Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
@@ -602,9 +623,12 @@ fun ChatScreen(
                                     text = "Say hi to $otherName",
                                     style = MaterialTheme.typography.titleSmall
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                QUICK_REPLIES.forEach { reply ->
-                                    SuggestionChip(onClick = { input = reply }, label = { Text(reply) })
+                                // Quick replies are questions for the lender, so only the renter gets them.
+                                if (conv.renterId == currentUserId) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    listOf(datesQuestion(myDates), PHOTOS_QUESTION).forEach { reply ->
+                                        SuggestionChip(onClick = { input = reply }, label = { Text(reply) })
+                                    }
                                 }
                             }
                         }
@@ -669,7 +693,7 @@ fun ChatScreen(
 }
 
 @Composable
-private fun PinnedListing(listing: Listing?, onClick: () -> Unit) {
+private fun PinnedListing(listing: Listing?, datesLine: String?, onClick: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier
@@ -695,6 +719,13 @@ private fun PinnedListing(listing: Listing?, onClick: () -> Unit) {
                         text = it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                datesLine?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

@@ -1,8 +1,10 @@
 package com.dzirent.app.data.model
 
 import com.dzirent.app.util.BodyMeasurement
+import com.dzirent.app.util.DateRange
 import com.dzirent.app.util.FitProfile
 import com.dzirent.app.util.formatPrice
+import com.dzirent.app.util.parseDateRange
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -182,12 +184,16 @@ data class Conversation(
     @SerialName("renter_id") val renterId: String,
     @SerialName("lender_id") val lenderId: String,
     @SerialName("created_at") val createdAt: String? = null,
+    // The dates the renter last asked about (006). Set only through set_conversation_dates.
+    @SerialName("requested_start") val requestedStart: String? = null,
+    @SerialName("requested_end") val requestedEnd: String? = null,
     // Embedded via select(), never written.
     val listing: Listing? = null,
     val renter: Profile? = null,
     val lender: Profile? = null,
     val messages: List<Message> = emptyList()
 ) {
+    val requestedDates: DateRange? get() = parseDateRange(requestedStart, requestedEnd)
     fun otherUserId(me: String): String = if (me == renterId) lenderId else renterId
     fun otherUser(me: String): Profile? = if (me == renterId) lender else renter
     val lastMessage: Message? get() = messages.firstOrNull()

@@ -37,12 +37,19 @@ fun sortCloset(listings: List<Listing>, sort: ClosetSort): List<Listing> = when 
 /** One removable chip above search results; [remove] returns the filters without it. */
 data class FilterChipItem(val label: String, val remove: (BrowseFilters) -> BrowseFilters)
 
-/** Chips for every filter that is set. Distance shows only when it isn't the default. */
-fun filterChips(filters: BrowseFilters): List<FilterChipItem> = buildList {
+/**
+ * Chips for every filter that is set. Distance shows only when it isn't the default
+ * distance from Settings ([defaultStep]); removing it goes back to that default.
+ */
+fun filterChips(
+    filters: BrowseFilters,
+    unit: DistanceUnit = DistanceUnit.MILES,
+    defaultStep: Int = DEFAULT_DISTANCE_STEP
+): List<FilterChipItem> = buildList {
     filters.category?.let { add(FilterChipItem(it) { f -> f.withCategory(null) }) }
     filters.itemType?.let { add(FilterChipItem(it) { f -> f.copy(itemType = null) }) }
-    if (filters.radiusKm != DEFAULT_DISTANCE_KM) {
-        add(FilterChipItem("${filters.radiusKm} km") { f -> f.copy(radiusKm = DEFAULT_DISTANCE_KM) })
+    if (filters.distanceStep != defaultStep) {
+        add(FilterChipItem(unit.optionLabel(filters.distanceStep)) { f -> f.copy(distanceStep = defaultStep) })
     }
     val min = filters.minPrice
     val max = filters.maxPrice

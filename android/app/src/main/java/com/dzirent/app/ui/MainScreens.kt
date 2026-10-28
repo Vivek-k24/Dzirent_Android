@@ -39,7 +39,9 @@ import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.ClosetSort
 import com.dzirent.app.util.sortCloset
 import com.dzirent.app.util.formatDateRange
+import com.dzirent.app.util.DistanceUnit
 import com.dzirent.app.util.formatDistance
+import com.dzirent.app.util.formatMeasurement
 import com.dzirent.app.util.formatPrice
 import com.dzirent.app.util.parseDateRange
 import kotlinx.coroutines.launch
@@ -51,9 +53,9 @@ sealed class UiState<out T> {
     data class Success<T>(val data: T) : UiState<T>()
 }
 
-/** "$25 · 2.4 km". Listings from before prices were required show the distance only. */
-fun cardSubtitle(listing: Listing): String =
-    listOfNotNull(listing.priceUsd?.let { formatPrice(it) }, listing.distanceKm?.let { formatDistance(it) })
+/** "$25 · 1.5 mi". Listings from before prices were required show the distance only. */
+fun cardSubtitle(listing: Listing, unit: DistanceUnit): String =
+    listOfNotNull(listing.priceUsd?.let { formatPrice(it) }, listing.distanceKm?.let { formatDistance(it, unit) })
         .joinToString(" · ")
 
 /** Large photo, title and "$price · distance". No icons on cards. */
@@ -80,7 +82,7 @@ fun ListingCard(listing: Listing, onClick: () -> Unit, modifier: Modifier = Modi
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = cardSubtitle(listing),
+            text = cardSubtitle(listing, LocalAppSettings.current.distanceUnit),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1
@@ -404,6 +406,7 @@ private fun PhotoCarousel(photos: List<ListingPhoto>, title: String) {
 
 @Composable
 private fun MeasurementsTable(measurements: List<ListingMeasurement>) {
+    val unit = LocalAppSettings.current.measureUnit
     Column {
         measurements.forEachIndexed { index, m ->
             if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -414,7 +417,7 @@ private fun MeasurementsTable(measurements: List<ListingMeasurement>) {
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "${formatMeasurementValue(m.value)} ${m.unit}",
+                    text = formatMeasurement(m.value, m.unit, unit),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -422,9 +425,6 @@ private fun MeasurementsTable(measurements: List<ListingMeasurement>) {
         }
     }
 }
-
-private fun formatMeasurementValue(value: Double): String =
-    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 // --- MY CLOSET SCREEN ---
 

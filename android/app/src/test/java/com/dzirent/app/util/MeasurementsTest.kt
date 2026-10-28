@@ -53,4 +53,14 @@ class MeasurementsTest {
             validateMeasurements(listOf(MeasurementInput("", ""), MeasurementInput("Chest", "40")))
         )
     }
+
+    @Test
+    fun garmentMeasurementsShowInThePreferredUnit() {
+        assertEquals("38 in", formatMeasurement(38.0, "in", MeasureUnit.INCHES))
+        assertEquals("38 in", formatMeasurement(96.52, "cm", MeasureUnit.INCHES))
+        assertEquals("96.5 cm", formatMeasurement(38.0, "in", MeasureUnit.CENTIMETERS))
+        assertEquals("40.5 cm", formatMeasurement(40.5, "cm", MeasureUnit.CENTIMETERS))
+        assertEquals(MeasureUnit.INCHES, MeasureUnit.fromKey(null))
+        assertEquals(MeasureUnit.CENTIMETERS, MeasureUnit.fromKey("cm"))
+    }
 }

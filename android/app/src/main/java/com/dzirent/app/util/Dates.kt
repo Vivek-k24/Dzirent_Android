@@ -23,11 +23,13 @@ data class DateRange(val start: LocalDate, val end: LocalDate) {
     fun format(): String = "${start.format(shortDate)} - ${end.format(shortDate)}"
 }
 
-/** Days in Home's default date range: today through today + 4 (5 days). */
-const val DEFAULT_RANGE_EXTRA_DAYS = 4L
+/** Settings > Preferences > Default rental length, in days. */
+val RENTAL_LENGTH_OPTIONS = listOf(3, 4, 5, 7)
+const val DEFAULT_RENTAL_DAYS = 5
 
-/** Home's starting date range: [today] through today + [DEFAULT_RANGE_EXTRA_DAYS]. */
-fun defaultBrowseRange(today: LocalDate): DateRange = DateRange(today, today.plusDays(DEFAULT_RANGE_EXTRA_DAYS))
+/** Home's starting date range: [days] days from [today], counting today. */
+fun defaultBrowseRange(today: LocalDate, days: Int = DEFAULT_RENTAL_DAYS): DateRange =
+    DateRange(today, today.plusDays(days.coerceAtLeast(1) - 1L))
 
 private val dayOnly = DateTimeFormatter.ofPattern("d", Locale.US)
 
@@ -44,6 +46,25 @@ fun formatDateChip(range: DateRange): String {
         else -> "$start - ${range.end.format(shortDate)}"
     }
 }
+
+/**
+ * The dates question, worded the same everywhere one is created (Bag, studio "Message",
+ * the chat chip): "Is this available Oct 27 - 31?". The chat is about one piece, so "this".
+ */
+fun datesQuestion(dates: DateRange): String = "Is this available ${formatDateChip(dates)}?"
+
+/**
+ * [dates] if the message [body] asks about them (it contains the chip text, as the
+ * dates question does), so the chat can save them. Null if the dates were edited out.
+ */
+fun datesAsked(body: String, dates: DateRange): DateRange? = dates.takeIf { formatDateChip(dates) in body }
+
+/**
+ * The line under the pinned listing in chat: "Your dates: Oct 27 - 31" for the renter
+ * who asked, "Their dates: Oct 27 - 31" for the lender. Null when none were asked.
+ */
+fun chatDatesLine(dates: DateRange?, iAmRenter: Boolean): String? =
+    dates?.let { (if (iAmRenter) "Your dates: " else "Their dates: ") + formatDateChip(it) }
 
 /**
  * True if [wanted] lies inside the availability [windows]. Back-to-back (the next window

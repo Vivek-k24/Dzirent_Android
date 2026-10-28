@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.aboutlibraries)
 }
 
 val localProperties = Properties()
@@ -122,6 +123,12 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+
+    // Settings saved on the device
+    implementation(libs.androidx.datastore.preferences)
+
+    // Open-source licenses screen
+    implementation(libs.aboutlibraries.compose.m3)
 
     debugImplementation(libs.androidx.ui.tooling)
 

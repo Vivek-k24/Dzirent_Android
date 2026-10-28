@@ -78,8 +78,10 @@ fun SearchScreen(
     val lng = profile.approxLng
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    LaunchedEffect(lat, lng, session.filters.radiusKm) {
-        if (lat != null && lng != null) session.load(lat, lng)
+    val settings = LocalAppSettings.current
+    val radiusKm = settings.distanceUnit.radiusKm(session.filters.distanceStep)
+    LaunchedEffect(lat, lng, radiusKm) {
+        if (lat != null && lng != null) session.load(lat, lng, radiusKm)
     }
 
     fun saveRecent(q: String) {
@@ -150,7 +152,7 @@ fun SearchScreen(
             return@Column
         }
 
-        val chips = filterChips(session.filters)
+        val chips = filterChips(session.filters, settings.distanceUnit, settings.defaultDistanceStep)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -175,7 +177,7 @@ fun SearchScreen(
 
         when (val state = session.state) {
             is UiState.Loading -> LoadingView(message = "Searching...")
-            is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { session.load(lat, lng, force = true) } })
+            is UiState.Error -> ErrorView(message = state.message, onRetry = { scope.launch { session.load(lat, lng, radiusKm, force = true) } })
             is UiState.Success -> {
                 val results = remember(state, session.filters, session.dates, query, sort) {
                     sortSearchResults(session.sections()?.visible.orEmpty().filter { it.matchesQuery(query) }, sort)
@@ -214,7 +216,7 @@ fun SearchScreen(
                         text = "No pieces match “${query.trim()}” for these dates and filters.",
                         actionLabel = if (chips.isNotEmpty()) "Clear filters" else "Change dates",
                         onAction = {
-                            if (chips.isNotEmpty()) session.filters = BrowseFilters()
+                            if (chips.isNotEmpty()) session.filters = BrowseFilters(distanceStep = settings.defaultDistanceStep)
                             else showDatePicker = true
                         }
                     )
