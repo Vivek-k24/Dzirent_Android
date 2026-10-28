@@ -471,14 +471,16 @@ private fun ListingEditorForm(
                 onSelected = { itemType = it; showItemTypeError = false },
                 isError = showItemTypeError
             )
-            Text(
-                text = DzirentPolicy.ACCESSORIES_NOT_ALLOWED,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
-            )
             Spacer(modifier = Modifier.height(12.dp))
         }
+
+        // What can't be listed, in the same words as the Community policy and the photo warnings.
+        Text(
+            text = DzirentPolicy.ITEM_RULES,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
+        )
 
         StylePicker(selected = styles, onChange = { styles = it })
         Spacer(modifier = Modifier.height(12.dp))

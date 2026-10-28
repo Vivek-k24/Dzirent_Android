@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.dzirent.app.util.ItemLabels
 
 /** Single source of truth for Dzirent's "we only connect people" policy wording. */
 object DzirentPolicy {
@@ -34,14 +35,16 @@ object DzirentPolicy {
             "chats friendly. Harassment, scams and fake listings aren't allowed. Use Report on a " +
             "listing, a person or a message, and Block to stop someone contacting you."
 
-    const val PROHIBITED_TITLE = "Not allowed on Dzirent"
+    const val PROHIBITED_TITLE = "What can't be listed"
 
-    const val PROHIBITED_ITEMS =
-        "Smartwatches, caps, hats (including cowboy hats), boots, shoes, socks, and pantyhose or other hosiery. " +
-            "Use \"Report listing\" with the reason \"Prohibited item\" if you see one."
+    /**
+     * The "Not allowed" and "Not offered" lists, built from the same labels the photo warnings
+     * use (ItemLabels), so the policy and the warnings never drift apart.
+     */
+    val ITEM_RULES: String = ItemLabels.notAllowedText + "\n" + ItemLabels.notOfferedText
 
-    /** One line under the Accessories item type on the listing form. */
-    const val ACCESSORIES_NOT_ALLOWED = "Not allowed: smartwatches, hats, caps, footwear, socks, hosiery."
+    val PROHIBITED_ITEMS: String =
+        ITEM_RULES + "\nUse \"Report listing\" with the reason \"Prohibited item\" if you see one."
 
     /** Shown above "Message Lender". */
     const val LISTING_NOTICE =

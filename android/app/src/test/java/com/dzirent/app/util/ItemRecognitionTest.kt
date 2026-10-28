@@ -1,5 +1,6 @@
 package com.dzirent.app.util
 
+import com.dzirent.app.ui.DzirentPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -179,6 +180,12 @@ class ItemRecognitionTest {
             assertEquals(label.tier, group!!.tier)
         }
         groups.keys.forEach { text -> assertTrue("$text covers no label", ItemLabels.ALL.any { it.policyGroup == text }) }
+    }
+
+    @Test
+    fun communityPolicyAndListingFormShowBothLists() {
+        assertEquals(ItemLabels.notAllowedText + "\n" + ItemLabels.notOfferedText, DzirentPolicy.ITEM_RULES)
+        assertTrue(DzirentPolicy.PROHIBITED_ITEMS.startsWith(DzirentPolicy.ITEM_RULES))
     }
 
     // ---- Embedding math --------------------------------------------------------------------
