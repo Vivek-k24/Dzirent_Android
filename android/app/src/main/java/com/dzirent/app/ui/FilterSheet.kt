@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.dzirent.app.data.model.AccessoryTypes
 import com.dzirent.app.data.model.Categories
 import com.dzirent.app.util.BrowseFilters
-import com.dzirent.app.util.DISTANCE_OPTIONS_KM
+import com.dzirent.app.util.DISTANCE_STEPS
 import com.dzirent.app.util.parsePrice
 import com.dzirent.app.util.priceInputText
 
@@ -33,6 +33,7 @@ fun FilterSheet(
     var maxText by remember { mutableStateOf(priceInputText(current.maxPrice)) }
     var sizeText by remember { mutableStateOf(current.size.orEmpty()) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val settings = LocalAppSettings.current
 
     val minPrice = parsePrice(minText)
     val maxPrice = parsePrice(maxText)
@@ -88,11 +89,11 @@ fun FilterSheet(
 
             SheetHeading("Distance")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DISTANCE_OPTIONS_KM.forEach { km ->
+                DISTANCE_STEPS.forEach { step ->
                     FilterChip(
-                        selected = draft.radiusKm == km,
-                        onClick = { draft = draft.copy(radiusKm = km) },
-                        label = { Text("$km km") }
+                        selected = draft.distanceStep == step,
+                        onClick = { draft = draft.copy(distanceStep = step) },
+                        label = { Text(settings.distanceUnit.optionLabel(step)) }
                     )
                 }
             }
@@ -119,7 +120,7 @@ fun FilterSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = {
-                        draft = BrowseFilters()
+                        draft = BrowseFilters(distanceStep = settings.defaultDistanceStep)
                         minText = ""
                         maxText = ""
                         sizeText = ""

@@ -18,6 +18,13 @@ class DateChipTest {
     }
 
     @Test
+    fun defaultFollowsTheRentalLengthSetting() {
+        assertEquals(r("2026-10-27", "2026-10-29"), defaultBrowseRange(d("2026-10-27"), 3))
+        assertEquals(r("2026-10-27", "2026-11-02"), defaultBrowseRange(d("2026-10-27"), 7))
+        assertEquals(listOf(3, 4, 5, 7), RENTAL_LENGTH_OPTIONS)
+    }
+
+    @Test
     fun defaultCrossingAMonth() {
         assertEquals(r("2026-10-29", "2026-11-02"), defaultBrowseRange(d("2026-10-29")))
     }

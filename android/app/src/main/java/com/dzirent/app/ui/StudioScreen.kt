@@ -268,7 +268,7 @@ private fun PiecePickerSheet(pieces: List<Listing>, onPick: (Listing) -> Unit, o
                     Column(modifier = Modifier.weight(1f)) {
                         Text(piece.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            text = cardSubtitle(piece).ifBlank { piece.typeLabel },
+                            text = cardSubtitle(piece, LocalAppSettings.current.distanceUnit).ifBlank { piece.typeLabel },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

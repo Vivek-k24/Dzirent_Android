@@ -11,7 +11,8 @@ data class BrowseFilters(
     val category: String? = null,
     /** Only used with the Accessories category. */
     val itemType: String? = null,
-    val radiusKm: Int = DEFAULT_DISTANCE_KM,
+    /** Position in the distance options (see [DistanceUnit]); applied when loading. */
+    val distanceStep: Int = DEFAULT_DISTANCE_STEP,
     val minPrice: Double? = null,
     val maxPrice: Double? = null,
     /** Matched against the listing's size label, ignoring case and spaces. */

@@ -8,6 +8,8 @@ import com.dzirent.app.data.model.Listing
 import com.dzirent.app.data.model.PrivateProfile
 import com.dzirent.app.data.repository.DzirentRepository
 import com.dzirent.app.util.BrowseFilters
+import com.dzirent.app.util.DEFAULT_DISTANCE_STEP
+import com.dzirent.app.util.DEFAULT_RENTAL_DAYS
 import com.dzirent.app.util.HomeSections
 import com.dzirent.app.util.buildHomeSections
 import com.dzirent.app.util.defaultBrowseRange
@@ -25,24 +27,33 @@ data class BrowseData(
 /**
  * Shared by Home, See all and Search: the sidebar filters, the date range and one load of
  * nearby listings (reloaded when the location or distance changes, or on refresh).
+ * The distance and the date range start from Settings > Preferences.
  */
 @Stable
-class BrowseSession(private val repository: DzirentRepository, private val userId: String) {
-    var filters by mutableStateOf(BrowseFilters())
-    var dates by mutableStateOf(defaultBrowseRange(LocalDate.now()))
+class BrowseSession(
+    private val repository: DzirentRepository,
+    private val userId: String,
+    defaultDistanceStep: Int = DEFAULT_DISTANCE_STEP,
+    rentalDays: Int = DEFAULT_RENTAL_DAYS
+) {
+    var filters by mutableStateOf(BrowseFilters(distanceStep = defaultDistanceStep))
+    var dates by mutableStateOf(defaultBrowseRange(LocalDate.now(), rentalDays))
     var state by mutableStateOf<UiState<BrowseData>>(UiState.Loading)
         private set
 
-    private var loadedFor: Triple<Double, Double, Int>? = null
+    private var loadedFor: Triple<Double, Double, Double>? = null
     private val mutex = Mutex()
 
-    /** Loads unless this location and distance are already loaded; [force] always reloads. */
-    suspend fun load(lat: Double, lng: Double, force: Boolean = false) = mutex.withLock {
-        val key = Triple(lat, lng, filters.radiusKm)
+    /**
+     * Loads listings within [radiusKm] unless this location and radius are already loaded;
+     * [force] always reloads.
+     */
+    suspend fun load(lat: Double, lng: Double, radiusKm: Double, force: Boolean = false) = mutex.withLock {
+        val key = Triple(lat, lng, radiusKm)
         if (!force && key == loadedFor && state is UiState.Success) return@withLock
         if (state !is UiState.Success) state = UiState.Loading
         state = try {
-            val listings = repository.getBrowseListings(lat, lng, filters.radiusKm.toDouble())
+            val listings = repository.getBrowseListings(lat, lng, radiusKm)
             val saved = repository.getSavedStudioIds(userId)
             val body = repository.getPrivateProfile(userId)
             loadedFor = key

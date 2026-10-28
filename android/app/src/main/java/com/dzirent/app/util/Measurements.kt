@@ -1,6 +1,40 @@
 package com.dzirent.app.util
 
+import kotlin.math.roundToLong
+
 const val MEASUREMENT_LABEL_MAX = 40
+
+/**
+ * Settings > Preferences > Measurements: how garment and body measurements are shown and
+ * entered. What is stored doesn't change (listings keep their own unit, bodies are in cm).
+ */
+enum class MeasureUnit(val key: String, val label: String) {
+    INCHES("in", "Inches"),
+    CENTIMETERS("cm", "Centimeters");
+
+    companion object {
+        fun fromKey(key: String?): MeasureUnit = entries.firstOrNull { it.key == key } ?: INCHES
+    }
+}
+
+/** "38", "38.5": one decimal, no trailing ".0". */
+fun formatMeasurementNumber(value: Double): String {
+    val rounded = (value * 10).roundToLong() / 10.0
+    return if (rounded % 1.0 == 0.0) rounded.toLong().toString() else rounded.toString()
+}
+
+/**
+ * A listing measurement stored as [value] [storedUnit] ("in" or "cm"), shown in [unit]:
+ * 96.5 cm shows as "38 in" for Inches.
+ */
+fun formatMeasurement(value: Double, storedUnit: String, unit: MeasureUnit): String {
+    val shown = when {
+        storedUnit == unit.key -> value
+        unit == MeasureUnit.INCHES -> value / CM_PER_INCH
+        else -> value * CM_PER_INCH
+    }
+    return "${formatMeasurementNumber(shown)} ${unit.key}"
+}
 
 /** One editor row as typed: a label and the number as text. */
 data class MeasurementInput(val label: String, val valueText: String) {

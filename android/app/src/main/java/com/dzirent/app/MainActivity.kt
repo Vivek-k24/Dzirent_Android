@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,6 +27,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.dzirent.app.data.SettingsStore
 import com.dzirent.app.data.SupabaseConfig
 import com.dzirent.app.data.model.Profile
 import com.dzirent.app.data.model.Roles
@@ -42,6 +44,8 @@ import com.dzirent.app.util.guideSteps
 import com.dzirent.app.util.hasAnyBodyMeasurement
 import com.dzirent.app.util.setupItems
 import com.dzirent.app.util.datesQuestion
+import com.dzirent.app.util.defaultBrowseRange
+import java.time.LocalDate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -54,13 +58,20 @@ sealed class AuthState {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val settingsStore = SettingsStore(applicationContext)
         setContent {
-            DzirentTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    DzirentApp()
+            // Wait for the saved settings (a few ms) so the app never flashes the other theme.
+            val settings by settingsStore.settings.collectAsState(initial = null)
+            settings?.let { loaded ->
+                DzirentTheme(darkTheme = loaded.theme.isDark(isSystemInDarkTheme())) {
+                    CompositionLocalProvider(LocalAppSettings provides loaded) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            DzirentApp(settingsStore)
+                        }
+                    }
                 }
             }
         }
@@ -68,7 +79,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun DzirentApp() {
+fun DzirentApp(settingsStore: SettingsStore) {
     val repository = remember { DzirentRepository() }
     var authState by remember { mutableStateOf<AuthState>(AuthState.Loading) }
 
@@ -102,6 +113,7 @@ fun DzirentApp() {
         is AuthState.Authenticated -> {
             MainAppScaffold(
                 repository = repository,
+                settingsStore = settingsStore,
                 userProfile = state.profile,
                 onSignOut = { authState = AuthState.Unauthenticated }
             )
@@ -162,6 +174,7 @@ private const val INBOX_REFRESH_MS = 60_000L
 @Composable
 fun MainAppScaffold(
     repository: DzirentRepository,
+    settingsStore: SettingsStore,
     userProfile: Profile,
     onSignOut: () -> Unit
 ) {
@@ -175,7 +188,17 @@ fun MainAppScaffold(
     var inboxHasNews by remember { mutableStateOf(false) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     // Filters (set from the sidebar), dates and nearby listings, shared by Home and Search.
-    val session = remember(profile.id) { BrowseSession(repository, profile.id) }
+    val settings = LocalAppSettings.current
+    val session = remember(profile.id) {
+        BrowseSession(repository, profile.id, settings.defaultDistanceStep, settings.rentalDays)
+    }
+    // Changing a default in Settings applies to the current browse right away.
+    LaunchedEffect(session, settings.defaultDistanceStep) {
+        session.filters = session.filters.copy(distanceStep = settings.defaultDistanceStep)
+    }
+    LaunchedEffect(session, settings.rentalDays) {
+        session.dates = defaultBrowseRange(LocalDate.now(), settings.rentalDays)
+    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var showFilterSheet by remember { mutableStateOf(false) }
     val onHome = backStackEntry?.destination?.route == TabHome.route
@@ -557,15 +580,27 @@ fun MainAppScaffold(
                         composable("settings") {
                             SettingsScreen(
                                 repository = repository,
+                                settingsStore = settingsStore,
                                 profile = profile,
                                 onBack = { navController.popBackStack() },
                                 onSetLocation = { showLocationSetup = true },
                                 onOpenBlockedUsers = { navController.navigate("blocked") },
-                                onOpenCommunityPolicy = { navController.navigate("community") },
-                                onOpenHowItWorks = { navController.navigate("policy") },
+                                onClearSearchHistory = { RecentSearchStore(context, profile.id).clear() },
                                 onAppTour = { startGuide() },
+                                onOpenAbout = { navController.navigate("about") },
                                 onSignOut = onSignOut
                             )
+                        }
+                        composable("about") {
+                            AboutScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenHowItWorks = { navController.navigate("policy") },
+                                onOpenCommunityPolicy = { navController.navigate("community") },
+                                onOpenLicenses = { navController.navigate("licenses") }
+                            )
+                        }
+                        composable("licenses") {
+                            LicensesScreen(onBack = { navController.popBackStack() })
                         }
                         composable("measurements") {
                             BodyMeasurementsScreen(

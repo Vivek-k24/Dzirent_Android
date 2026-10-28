@@ -23,11 +23,13 @@ data class DateRange(val start: LocalDate, val end: LocalDate) {
     fun format(): String = "${start.format(shortDate)} - ${end.format(shortDate)}"
 }
 
-/** Days in Home's default date range: today through today + 4 (5 days). */
-const val DEFAULT_RANGE_EXTRA_DAYS = 4L
+/** Settings > Preferences > Default rental length, in days. */
+val RENTAL_LENGTH_OPTIONS = listOf(3, 4, 5, 7)
+const val DEFAULT_RENTAL_DAYS = 5
 
-/** Home's starting date range: [today] through today + [DEFAULT_RANGE_EXTRA_DAYS]. */
-fun defaultBrowseRange(today: LocalDate): DateRange = DateRange(today, today.plusDays(DEFAULT_RANGE_EXTRA_DAYS))
+/** Home's starting date range: [days] days from [today], counting today. */
+fun defaultBrowseRange(today: LocalDate, days: Int = DEFAULT_RENTAL_DAYS): DateRange =
+    DateRange(today, today.plusDays(days.coerceAtLeast(1) - 1L))
 
 private val dayOnly = DateTimeFormatter.ofPattern("d", Locale.US)
 

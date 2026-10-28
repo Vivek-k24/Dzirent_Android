@@ -231,6 +231,39 @@ class DzirentRepository {
         }
     }
 
+    /** The signed-in account's email, shown read-only in Settings > Account. */
+    fun currentEmail(): String? = auth.currentUserOrNull()?.email
+
+    /**
+     * Changes the password after checking [current]: Supabase's update alone doesn't ask
+     * for it, so signing in again with it proves the person is the account owner.
+     */
+    suspend fun changePassword(current: String, new: String) {
+        val emailStr = currentEmail()
+            ?: throw DzirentException("Your session may have expired. Please log out and log in again.")
+        try {
+            auth.signInWith(Email) {
+                email = emailStr
+                password = current
+            }
+        } catch (e: Exception) {
+            if ("invalid login credentials" in e.message.orEmpty().lowercase()) {
+                logError("check the current password", e)
+                throw DzirentException("Your current password is incorrect.")
+            }
+            throw fail("check your password", e)
+        }
+        try {
+            auth.updateUser { password = new }
+        } catch (e: Exception) {
+            if ("different from the old" in e.message.orEmpty().lowercase()) {
+                logError("change the password", e)
+                throw DzirentException("Choose a password that's different from your current one.")
+            }
+            throw fail("change your password", e)
+        }
+    }
+
     suspend fun resetPassword(emailStr: String) {
         try {
             auth.resetPasswordForEmail(emailStr)

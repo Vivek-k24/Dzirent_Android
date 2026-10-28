@@ -51,11 +51,21 @@ class SortTest {
     @Test
     fun chipsForEveryFilterThatIsSet() {
         val filters = BrowseFilters(
-            category = Categories.ACCESSORIES, itemType = "Tie", radiusKm = 25,
+            category = Categories.ACCESSORIES, itemType = "Tie", distanceStep = 3,
             minPrice = 10.0, maxPrice = 50.0, size = "M"
         )
-        assertEquals(listOf("Accessories", "Tie", "25 km", "\$10 - \$50", "Size M"), filterChips(filters).map { it.label })
+        assertEquals(listOf("Accessories", "Tie", "15 mi", "\$10 - \$50", "Size M"), filterChips(filters).map { it.label })
+        assertEquals("25 km", filterChips(filters, DistanceUnit.KILOMETERS)[2].label)
         assertTrue(filterChips(BrowseFilters()).isEmpty())
+    }
+
+    @Test
+    fun distanceChipFollowsTheDefaultDistanceSetting() {
+        // Default distance set to 1 mi: 5 mi is now a filter, and removing it goes back to 1 mi.
+        val chips = filterChips(BrowseFilters(distanceStep = 2), DistanceUnit.MILES, defaultStep = 0)
+        assertEquals(listOf("5 mi"), chips.map { it.label })
+        assertEquals(BrowseFilters(distanceStep = 0), chips.single().remove(BrowseFilters(distanceStep = 2)))
+        assertTrue(filterChips(BrowseFilters(distanceStep = 0), DistanceUnit.MILES, defaultStep = 0).isEmpty())
     }
 
     @Test

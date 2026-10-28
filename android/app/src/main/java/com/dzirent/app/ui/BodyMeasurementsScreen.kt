@@ -86,13 +86,14 @@ private fun MeasurementsForm(
     onSaved: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    // Inches by default for the US pilot; values are stored in cm either way.
-    var unit by rememberSaveable { mutableStateOf("in") }
+    // Starts in the unit from Settings > Preferences; values are stored in cm either way.
+    val startUnit = LocalAppSettings.current.measureUnit.key
+    var unit by rememberSaveable { mutableStateOf(startUnit) }
     // "I'm a": optional, nothing preselected. Only changes the Chest/Bust wording and the fit rule.
     var fit by rememberSaveable { mutableStateOf(saved.fit) }
     val texts = remember {
         mutableStateMapOf<BodyMeasurement, String>().apply {
-            BodyMeasurement.entries.forEach { put(it, cmToBodyInput(saved.bodyCm(it), "in")) }
+            BodyMeasurement.entries.forEach { put(it, cmToBodyInput(saved.bodyCm(it), unit)) }
         }
     }
     var showErrors by remember { mutableStateOf(false) }
