@@ -74,10 +74,10 @@ TEMPLATES = [
 ]
 
 # The same numbers as PhotoThresholds.kt, for check_model.py's "the app would..." line.
-LOGIT_SCALE = 100.0
+LOGIT_SCALE = 50.0
 SUGGEST_CONFIDENCE = 0.45
 POLICY_CONFIDENCE = 0.60
-SAME_ITEM_MIN_SIMILARITY = 0.72
+SAME_ITEM_MIN_SIMILARITY = 0.65
 
 # Label -> policy group (NOT_ALLOWED / NOT_OFFERED only), as in ItemLabels.kt.
 POLICY_GROUPS = {

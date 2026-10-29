@@ -62,12 +62,13 @@ object PhotoThresholds {
     const val CUT_OFF_OUTLINE_SHARE = 0.02
 
     // ---- Item recognition (TinyCLIP) ------------------------------------------------------
-    /** CLIP's logit scale: cosine similarities are multiplied by this before the softmax (from the model). */
-    const val LOGIT_SCALE = 100.0
+    /** The logit scale: cosine similarities are multiplied by this before the softmax. TinyCLIP learned 50
+     *  (OpenAI CLIP 100); make_text_embeddings.py writes it to label_embeddings.json and a test checks it. */
+    const val LOGIT_SCALE = 50.0
     /** Title, category and description are suggested only at or above this top-label probability (owner to tune). */
     const val SUGGEST_CONFIDENCE = 0.45
     /** "Not allowed" / "not offered" warnings need at least this probability for the group (owner to tune). */
     const val POLICY_CONFIDENCE = 0.60
     /** Another photo whose image embedding is less similar than this to the cover's looks like a different item (owner to tune). */
-    const val SAME_ITEM_MIN_SIMILARITY = 0.72
+    const val SAME_ITEM_MIN_SIMILARITY = 0.65
 }

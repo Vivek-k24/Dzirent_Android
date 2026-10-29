@@ -75,7 +75,7 @@ def main() -> None:
     first = None
     for path in args.images:
         e = embed(interpreter, preprocess(path))
-        logits = LOGIT_SCALE * text @ e
+        logits = data.get("logit_scale", LOGIT_SCALE) * text @ e
         p = np.exp(logits - logits.max())
         p /= p.sum()
         order = np.argsort(-p)
