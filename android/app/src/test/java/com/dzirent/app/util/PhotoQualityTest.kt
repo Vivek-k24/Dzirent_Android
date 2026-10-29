@@ -181,6 +181,14 @@ class PhotoQualityTest {
     }
 
     @Test
+    fun tinyPhotosDontCrashTheChecks() {
+        listOf(1 to 1, 3 to 200, 15 to 15).forEach { (tw, th) ->
+            val checks = checkPhoto(RgbImage(tw, th, IntArray(tw * th) { 0x808080 }))
+            assertEquals(CheckStatus.UNSURE, checks.wholeItem.status)
+        }
+    }
+
+    @Test
     fun morphologyOpenDropsSpecksAndKeepsBlocks() {
         val mask = BooleanArray(20 * 20) { i -> val x = i % 20; val y = i / 20; (x in 5..14 && y in 5..14) || (x == 1 && y == 1) }
         val opened = dilate(erode(mask, 20, 20, 3), 20, 20, 3)

@@ -1,0 +1,16 @@
+{
+  "uniqueId": "com.microsoft:tinyclip-resnet-19m",
+  "developers": [
+    {
+      "name": "Microsoft Corporation",
+      "organisationUrl": "https://github.com/wkcn/TinyCLIP"
+    }
+  ],
+  "artifactVersion": "ResNet-19M-Text-19M (LAION-400M), image encoder",
+  "description": "On-device item recognition in Create listing uses TinyCLIP's image encoder, converted to LiteRT and quantized.",
+  "name": "TinyCLIP",
+  "website": "https://github.com/wkcn/TinyCLIP",
+  "licenses": [
+    "MIT"
+  ]
+}

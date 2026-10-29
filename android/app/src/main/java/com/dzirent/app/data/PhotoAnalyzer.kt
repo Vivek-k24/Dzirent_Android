@@ -8,12 +8,14 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import com.dzirent.app.util.ColorName
 import com.dzirent.app.util.PhotoChecks
 import com.dzirent.app.util.PhotoThresholds
 import com.dzirent.app.util.RgbImage
 import com.dzirent.app.util.checkPhoto
 import com.dzirent.app.util.dominantColorName
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -39,16 +41,33 @@ class PhotoAnalyzer(context: Context) {
             ?: return@withContext PhotoAnalysis(checks = null)
         try {
             val image = bitmap.toRgbImage()
-            PhotoAnalysis(checks = checkPhoto(image), embedding = recognizer.embed(bitmap), color = dominantColorName(image))
+            // A photo the checks can't handle (odd size, out of memory) is treated like one that
+            // can't be read; recognition failing only means no suggestions.
+            val checks = guarded { checkPhoto(image) } ?: return@withContext PhotoAnalysis(checks = null)
+            PhotoAnalysis(checks = checks, embedding = guarded { recognizer.embed(bitmap) }, color = guarded { dominantColorName(image) })
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private inline fun <T> guarded(block: () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Photo analysis step failed", e)
+        null
+    } catch (e: OutOfMemoryError) {
+        Log.w(TAG, "Photo analysis ran out of memory", e)
+        null
     }
 
     /** Every label's probability for an embedding from [analyze], best first. */
     suspend fun labelScores(embedding: FloatArray) = recognizer.scores(embedding)
 
     companion object {
+        private const val TAG = "PhotoAnalyzer"
+
         /**
          * Decodes [uri] the right way up (EXIF orientation applied), scaled down so the long
          * side is at most [maxSide]. Null if it can't be read.
@@ -73,6 +92,8 @@ class PhotoAnalyzer(context: Context) {
                 decodeLegacy(context, uri, maxSide)
             }
         } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
             null
         }
 

@@ -204,6 +204,7 @@ private fun centerValues(values: IntArray, width: Int, height: Int): IntArray {
 fun checkWholeItem(image: RgbImage): CheckResult {
     val w = image.width
     val h = image.height
+    if (min(w, h) < 16) return CheckResult(CheckStatus.UNSURE, "too_small")
     val lab = toLab(image)
     val band = max(4, (T.BORDER_SHARE * min(w, h)).roundToInt()).coerceAtMost(min(w, h) / 2)
 

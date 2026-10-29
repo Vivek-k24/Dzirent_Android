@@ -95,6 +95,11 @@ android {
     }
 }
 
+// Open-source licenses: also lists files that aren't Gradle dependencies (the TinyCLIP model).
+aboutLibraries {
+    configPath = "config"
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
