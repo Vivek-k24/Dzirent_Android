@@ -6,9 +6,10 @@ import android.util.Log
 import com.dzirent.app.util.ClipInput
 import com.dzirent.app.util.ItemLabel
 import com.dzirent.app.util.ItemLabels
-import com.dzirent.app.util.LabelScore
+import com.dzirent.app.util.PhotoScores
 import com.dzirent.app.util.normalized
 import com.dzirent.app.util.scoreLabels
+import com.dzirent.app.util.zeroShot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,9 +22,20 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 
+/** A smaller set in label_embeddings.json (general check, patterns, fabrics), scored with its own softmax. */
+@Serializable
+private data class EmbeddingSet(val labels: List<String>, val embeddings: List<List<Float>>)
+
 /** assets/ml/label_embeddings.json, made by tools/ml/make_text_embeddings.py. */
 @Serializable
-private data class LabelEmbeddingsFile(val labels: List<String>, val dim: Int, val embeddings: List<List<Float>>)
+private data class LabelEmbeddingsFile(
+    val labels: List<String>,
+    val dim: Int,
+    val embeddings: List<List<Float>>,
+    val general: EmbeddingSet? = null,
+    val patterns: EmbeddingSet? = null,
+    val fabrics: EmbeddingSet? = null
+)
 
 /**
  * Recognizes the item in a photo with TinyCLIP's image encoder (MIT), run on the phone by
@@ -37,6 +49,9 @@ class ItemRecognizer private constructor(private val appContext: Context) {
     private var model: Interpreter? = null
     private var labels: List<ItemLabel> = emptyList()
     private var text: List<FloatArray> = emptyList()
+    private var general: List<FloatArray> = emptyList()
+    private var patterns: List<FloatArray> = emptyList()
+    private var fabrics: List<FloatArray> = emptyList()
     private var failed = false
 
     /** The photo's normalized image embedding, or null if the model isn't available. */
@@ -56,9 +71,19 @@ class ItemRecognizer private constructor(private val appContext: Context) {
         }
     }
 
-    /** Every label's probability for an embedding from [embed], best first. */
-    suspend fun scores(embedding: FloatArray): List<LabelScore> = lock.withLock {
-        if (text.isEmpty() || text.first().size != embedding.size) emptyList() else scoreLabels(embedding, text, labels)
+    /**
+     * Every label's probability for an embedding from [embed] (best first), the general check's
+     * "not fashion" probability, and the pattern and fabric probabilities. Null if the model
+     * isn't loaded.
+     */
+    suspend fun scores(embedding: FloatArray): PhotoScores? = lock.withLock {
+        if (text.isEmpty() || text.first().size != embedding.size) return@withLock null
+        PhotoScores(
+            labels = scoreLabels(embedding, text, labels),
+            notFashion = if (general.size == ItemLabels.GENERAL.size) zeroShot(embedding, general)[1] else 0.0,
+            patterns = if (patterns.size == ItemLabels.PATTERNS.size) zeroShot(embedding, patterns) else DoubleArray(0),
+            fabrics = if (fabrics.size == ItemLabels.FABRICS.size) zeroShot(embedding, fabrics) else DoubleArray(0)
+        )
     }
 
     private fun loadLocked(): Interpreter? {
@@ -72,6 +97,12 @@ class ItemRecognizer private constructor(private val appContext: Context) {
             val known = file.labels.withIndex().mapNotNull { (i, name) -> ItemLabels.byName(name)?.let { it to i } }
             labels = known.map { it.first }
             text = known.map { (_, i) -> normalized(file.embeddings[i].toFloatArray()) }
+            // Each set only when its names are the ones the app expects, in the same order.
+            fun set(found: EmbeddingSet?, expected: List<String>) =
+                found?.takeIf { it.labels == expected }?.embeddings?.map { normalized(it.toFloatArray()) }.orEmpty()
+            general = set(file.general, ItemLabels.GENERAL)
+            patterns = set(file.patterns, ItemLabels.PATTERNS.map { it.key })
+            fabrics = set(file.fabrics, ItemLabels.FABRICS)
             val mapped = appContext.assets.openFd(MODEL_ASSET).use { fd ->
                 FileInputStream(fd.fileDescriptor).channel.use { channel ->
                     channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)

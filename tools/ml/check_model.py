@@ -5,8 +5,9 @@
 Uses the same files the app ships (assets/ml/tinyclip_image.tflite and label_embeddings.json)
 and the same preprocessing: upright (EXIF), centered square crop, 224 x 224, CLIP
 normalization. Runs on your PC; no emulator, no network. For each photo it also says what the
-app would show (a suggestion, a policy warning or nothing), and with several photos, how
-similar each one is to the first (the "looks like a different item" check).
+app would do with it (remove it, ask for the accessory declaration, warn, suggest, offer chips
+or nothing), the pattern and fabric guesses, and with several photos, how similar each one is
+to the first (the "looks like a different item" check).
 """
 
 import argparse
@@ -64,12 +65,20 @@ def main() -> None:
     args = parser.parse_args()
 
     sys.path.insert(0, HERE)
-    from labels import LOGIT_SCALE, POLICY_CONFIDENCE, POLICY_GROUPS, SAME_ITEM_MIN_SIMILARITY, SUGGEST_CONFIDENCE
+    from labels import (GENERAL_NOT_FASHION_CONFIDENCE, JEWELRY_CONFIDENCE, LOGIT_SCALE, NOT_FASHION_LABEL_CONFIDENCE,
+                        POLICY_CONFIDENCE, POLICY_GROUPS,
+                        REMOVE_CONFIDENCE, SAME_ITEM_MIN_SIMILARITY, SUGGEST_CONFIDENCE, TIERS)
 
     with open(args.labels, encoding="utf-8") as f:
         data = json.load(f)
     names = data["labels"]
     text = np.array(data["embeddings"], np.float64)
+    scale = data.get("logit_scale", LOGIT_SCALE)
+
+    def softmax_of(rows, e):
+        logits = scale * np.array(rows, np.float64) @ e
+        q = np.exp(logits - logits.max())
+        return q / q.sum()
     interpreter = load_interpreter(args.model)
 
     first = None
@@ -83,18 +92,44 @@ def main() -> None:
         for rank, i in enumerate(order[:3], 1):
             print(f"  {rank}. {names[i]:<16} {p[i] * 100:5.1f}%")
 
-        groups: dict[str, float] = {}
+        # The same order of decisions as tierVerdict() and guessItem() in ItemRecognition.kt.
+        tier_total = {}
+        groups = {}
         for i, name in enumerate(names):
+            tier = TIERS.get(name, "ALLOWED")
+            tier_total[tier] = tier_total.get(tier, 0.0) + p[i]
             if name in POLICY_GROUPS:
-                groups[POLICY_GROUPS[name]] = groups.get(POLICY_GROUPS[name], 0.0) + p[i]
-        group, total = max(groups.items(), key=lambda kv: kv[1])
+                key = (tier, POLICY_GROUPS[name])
+                groups[key] = groups.get(key, 0.0) + p[i]
+        not_fashion = softmax_of(data["general"]["embeddings"], e)[1] if "general" in data else 0.0
+        print(f"  general check: {not_fashion * 100:.0f}% not fashion; "
+              + ", ".join(f"{t.lower()} {v * 100:.0f}%" for t, v in sorted(tier_total.items())))
+        def best_group(tier):
+            found = [(g, v) for (t, g), v in groups.items() if t == tier]
+            return max(found, key=lambda kv: kv[1]) if found else (None, 0.0)
         top = names[order[0]]
-        if total >= POLICY_CONFIDENCE:
-            print(f"  app: policy warning ({group}, {total * 100:.0f}%)")
-        elif top not in POLICY_GROUPS and p[order[0]] >= SUGGEST_CONFIDENCE:
-            print(f"  app: suggests '{top}'")
+        allowed = [i for i in order if TIERS.get(names[i], "ALLOWED") == "ALLOWED"][:3]
+        na_group, na_total = best_group("NOT_ALLOWED")
+        no_group, no_total = best_group("NOT_OFFERED")
+        if not_fashion >= GENERAL_NOT_FASHION_CONFIDENCE and tier_total.get("NOT_FASHION", 0) >= NOT_FASHION_LABEL_CONFIDENCE:
+            print("  app: REMOVES the photo (not fashion)")
+        elif na_total >= REMOVE_CONFIDENCE:
+            print(f"  app: REMOVES the photo (not allowed: {na_group}, {na_total * 100:.0f}%)")
+        elif tier_total.get("JEWELRY", 0) >= JEWELRY_CONFIDENCE:
+            print("  app: asks for the accessory declaration (jewelry)")
+        elif no_total >= POLICY_CONFIDENCE:
+            print(f"  app: everyday-basics warning ({no_group}, {no_total * 100:.0f}%)")
+        elif TIERS.get(top, "ALLOWED") in ("ALLOWED", "JEWELRY") and p[order[0]] >= SUGGEST_CONFIDENCE:
+            print(f"  app: fills in '{top}'")
+        elif sum(p[i] for i in allowed) >= 0.40:
+            print("  app: asks 'Is it a: " + " / ".join(names[i] for i in allowed) + "?'")
         else:
             print("  app: shows nothing (not confident enough)")
+        for key in ("patterns", "fabrics"):
+            if key in data:
+                q = softmax_of(data[key]["embeddings"], e)
+                j = int(np.argmax(q))
+                print(f"  {key[:-1]}: {data[key]['labels'][j]} {q[j] * 100:.0f}%")
 
         if first is None:
             first = e

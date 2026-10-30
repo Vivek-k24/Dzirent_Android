@@ -329,7 +329,9 @@ private fun ChangePasswordDialog(
 private const val DELETE_ACCOUNT_EXPLANATION =
     "This permanently deletes your account and everything in it: your profile and studio, " +
         "your listings and their photos, your chats and messages (for both people), your saved " +
-        "pieces and studios, your measurements and your rental history. It can't be undone."
+        "pieces and studios, your measurements and your rental history. It can't be undone. " +
+        // Placeholder wording for lawyer review (docs/PRIVACY_POLICY_NOTES.md).
+        "Accessory declarations you signed are kept as a record, without your account."
 
 private const val DELETE_CONFIRM_WORD = "DELETE"
 

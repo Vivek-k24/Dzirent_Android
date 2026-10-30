@@ -27,6 +27,17 @@ fun normalized(v: FloatArray): FloatArray {
     return if (norm == 0.0) v.copyOf() else FloatArray(v.size) { (v[it] / norm).toFloat() }
 }
 
+/** The normalized mean of normalized embeddings: several photos of one item, as one. Null if there are none. */
+fun averageEmbedding(embeddings: List<FloatArray>): FloatArray? {
+    if (embeddings.isEmpty()) return null
+    val sum = FloatArray(embeddings.first().size)
+    embeddings.forEach { e ->
+        val n = normalized(e)
+        for (i in sum.indices) sum[i] += n[i]
+    }
+    return normalized(sum)
+}
+
 /** Softmax of [logits], shifted by the max so large values don't overflow. */
 fun softmax(logits: DoubleArray): DoubleArray {
     val max = logits.maxOrNull() ?: return logits
@@ -34,6 +45,10 @@ fun softmax(logits: DoubleArray): DoubleArray {
     val sum = e.sum()
     return DoubleArray(e.size) { e[it] / sum }
 }
+
+/** CLIP zero-shot probabilities of [image] against each text embedding, in [text]'s order. */
+fun zeroShot(image: FloatArray, text: List<FloatArray>): DoubleArray =
+    softmax(DoubleArray(text.size) { T.LOGIT_SCALE * cosineSimilarity(image, text[it]) })
 
 /** A label and how likely the photo is to show it. */
 data class LabelScore(val label: ItemLabel, val probability: Double)
@@ -44,7 +59,7 @@ data class LabelScore(val label: ItemLabel, val probability: Double)
  */
 fun scoreLabels(image: FloatArray, text: List<FloatArray>, labels: List<ItemLabel>): List<LabelScore> {
     require(text.size == labels.size) { "one text embedding per label" }
-    val probabilities = softmax(DoubleArray(labels.size) { T.LOGIT_SCALE * cosineSimilarity(image, text[it]) })
+    val probabilities = zeroShot(image, text)
     return labels.indices.map { LabelScore(labels[it], probabilities[it]) }.sortedByDescending { it.probability }
 }
 
@@ -52,121 +67,185 @@ fun scoreLabels(image: FloatArray, text: List<FloatArray>, labels: List<ItemLabe
 fun looksLikeDifferentItem(cover: FloatArray, other: FloatArray): Boolean =
     cosineSimilarity(cover, other) < T.SAME_ITEM_MIN_SIMILARITY
 
-// ---- What to do with the scores -----------------------------------------------------------
+/**
+ * Everything the model says about one embedding (one photo, or several averaged): the item
+ * labels (best first), how likely it is not fashion at all (the general check), and the
+ * pattern and fabric probabilities in [ItemLabels.PATTERNS] / [ItemLabels.FABRICS] order.
+ */
+data class PhotoScores(
+    val labels: List<LabelScore>,
+    val notFashion: Double = 0.0,
+    val patterns: DoubleArray = DoubleArray(0),
+    val fabrics: DoubleArray = DoubleArray(0)
+) {
+    fun tierTotal(tier: LabelTier): Double = labels.filter { it.label.tier == tier }.sumOf { it.probability }
+    fun top(tier: LabelTier): LabelScore? = labels.filter { it.label.tier == tier }.maxByOrNull { it.probability }
 
-/** What the editor shows for the cover photo. */
-sealed class Recognition {
-    /** Not confident enough: show nothing. */
-    object Unsure : Recognition()
-
-    /** An allowed item, confident enough to suggest the title, category and description. */
-    data class Suggest(val label: ItemLabel, val probability: Double, val suggestions: ListingSuggestions) : Recognition()
-
-    /** A not-allowed or not-offered item, with the message to show. */
-    data class Policy(val label: ItemLabel, val probability: Double, val message: String) : Recognition()
+    /** Each policy group's labels added up ("hat", "cap" and "cowboy hat" count together), with the likeliest label. */
+    fun groupTotals(tier: LabelTier): List<Pair<LabelScore, Double>> =
+        labels.filter { it.label.tier == tier && it.label.policyGroup != null }
+            .groupBy { it.label.policyGroup }
+            .values.map { group -> group.maxBy { it.probability } to group.sumOf { it.probability } }
 }
 
-/** What accepting each suggestion card fills in. */
-data class ListingSuggestions(val title: String, val category: String, val itemType: String?, val description: String)
+// ---- What can be listed (per photo) -------------------------------------------------------
+
+/** What the tier check decides for one photo. */
+sealed class TierVerdict {
+    /** Clothing, a bag or an accessory Dzirent lists. */
+    object Fashion : TierVerdict()
+
+    /** Taken out of the listing at once; [label] is null when only the general check named it. */
+    data class Remove(val tier: LabelTier, val label: ItemLabel?, val probability: Double) : TierVerdict() {
+        val message: String get() = removalMessage(tier, label)
+    }
+
+    /** Jewelry: never removed, but the accessory declaration is needed. */
+    data class Jewelry(val label: ItemLabel, val probability: Double) : TierVerdict()
+
+    /** An everyday basic: a warning with "Choose another photo" / "This is wrong". */
+    data class NotOffered(val label: ItemLabel, val probability: Double) : TierVerdict() {
+        val message: String get() = policyMessage(label)
+    }
+}
 
 /**
- * Decides from the label scores: a not-allowed or not-offered group at or above
- * [PhotoThresholds.POLICY_CONFIDENCE] (its labels' probabilities added up, so "hat", "cap" and
- * "cowboy hat" count together) warns; otherwise an allowed top label at or above
- * [PhotoThresholds.SUGGEST_CONFIDENCE] suggests; otherwise nothing.
+ * The tier check, strongest first:
+ * - not fashion, when the general check is at least [PhotoThresholds.GENERAL_NOT_FASHION_CONFIDENCE]
+ *   *and* the not-fashion labels add up to [PhotoThresholds.NOT_FASHION_LABEL_CONFIDENCE] (both
+ *   have to agree, so a dress is never taken out because one signal misfired);
+ * - a not-allowed group at [PhotoThresholds.REMOVE_CONFIDENCE];
+ * - jewelry at [PhotoThresholds.JEWELRY_CONFIDENCE] (the tier added up);
+ * - a not-offered group at [PhotoThresholds.POLICY_CONFIDENCE].
  */
-fun recognize(scores: List<LabelScore>, color: ColorName?): Recognition {
-    val byGroup = scores.filter { it.label.policyGroup != null }.groupBy { it.label.policyGroup }
-    val policy = byGroup.values
-        .map { group -> group.maxBy { it.probability } to group.sumOf { it.probability } }
-        .filter { (_, total) -> total >= T.POLICY_CONFIDENCE }
-        .maxByOrNull { (_, total) -> total }
-    if (policy != null) {
-        val (top, total) = policy
-        return Recognition.Policy(top.label, total, policyMessage(top.label))
+fun tierVerdict(scores: PhotoScores): TierVerdict {
+    val notFashionLabels = scores.tierTotal(LabelTier.NOT_FASHION)
+    if (scores.notFashion >= T.GENERAL_NOT_FASHION_CONFIDENCE && notFashionLabels >= T.NOT_FASHION_LABEL_CONFIDENCE) {
+        return TierVerdict.Remove(LabelTier.NOT_FASHION, scores.top(LabelTier.NOT_FASHION)?.label, scores.notFashion)
     }
-    val top = scores.maxByOrNull { it.probability } ?: return Recognition.Unsure
-    if (top.label.tier != LabelTier.ALLOWED || top.probability < T.SUGGEST_CONFIDENCE) return Recognition.Unsure
-    return Recognition.Suggest(top.label, top.probability, suggestionsFor(top.label, color))
+    scores.groupTotals(LabelTier.NOT_ALLOWED).filter { (_, total) -> total >= T.REMOVE_CONFIDENCE }.maxByOrNull { it.second }
+        ?.let { (top, total) -> return TierVerdict.Remove(LabelTier.NOT_ALLOWED, top.label, total) }
+    val jewelry = scores.tierTotal(LabelTier.JEWELRY)
+    if (jewelry >= T.JEWELRY_CONFIDENCE) return TierVerdict.Jewelry(scores.top(LabelTier.JEWELRY)!!.label, jewelry)
+    scores.groupTotals(LabelTier.NOT_OFFERED).filter { (_, total) -> total >= T.POLICY_CONFIDENCE }.maxByOrNull { it.second }
+        ?.let { (top, total) -> return TierVerdict.NotOffered(top.label, total) }
+    return TierVerdict.Fashion
 }
 
-/** The warning for a not-allowed or not-offered item. */
+/** "Removed: this looks like a bike. Dzirent is for clothing and fashion accessories." */
+fun removalMessage(tier: LabelTier, label: ItemLabel?): String = when (tier) {
+    LabelTier.NOT_FASHION ->
+        "Removed: ${label?.let { "this looks like ${it.looksLike}" } ?: "this doesn't look like clothing"}. " +
+            "Dzirent is for clothing and fashion accessories."
+    LabelTier.NOT_ALLOWED -> "Removed: this looks like ${label!!.looksLike}. Dzirent doesn't allow ${label.plural}."
+    else -> error("$tier is never removed")
+}
+
+/** The snackbar button that puts the photo back. */
+fun keepLabel(tier: LabelTier): String = if (tier == LabelTier.NOT_FASHION) "It's fashion, keep it" else "That's wrong, keep it"
+
+/** The warning for a not-offered item. */
 fun policyMessage(label: ItemLabel): String = when (label.tier) {
-    LabelTier.NOT_ALLOWED -> "This looks like ${label.looksLike}. Dzirent doesn't allow ${label.plural}."
     LabelTier.NOT_OFFERED ->
         "This looks like ${label.looksLike}. Dzirent focuses on pieces worth renting, so everyday basics aren't listed."
-    LabelTier.ALLOWED -> error("${label.name} is allowed")
+    LabelTier.NOT_ALLOWED -> "This looks like ${label.looksLike}. Dzirent doesn't allow ${label.plural}."
+    else -> error("${label.name} has no warning")
 }
 
-/** "Maroon lehenga", its category (and item type), and a starter description to edit. */
-fun suggestionsFor(label: ItemLabel, color: ColorName?): ListingSuggestions {
-    require(label.tier == LabelTier.ALLOWED && label.category != null) { "${label.name} can't be listed" }
-    val title = if (color == null) label.titleNoun.replaceFirstChar { it.uppercase() } else "${color.display} ${label.titleNoun}"
+// ---- What it is (all the item's photos together) ------------------------------------------
+
+/** What the form fills in from the photos. [label] is what it was suggested from (for tracking). */
+data class ListingSuggestions(
+    val label: ItemLabel,
+    val title: String,
+    val category: String,
+    val itemType: String?,
+    val description: String,
+    val style: String?,
+    val kind: GarmentKind?
+)
+
+/** What the photos say the item is. */
+sealed class ItemGuess {
+    /** Not confident enough: nothing to fill, nothing to ask. */
+    object Unsure : ItemGuess()
+
+    /** Confident: fill the empty fields. */
+    data class Suggest(val label: ItemLabel, val probability: Double, val suggestions: ListingSuggestions) : ItemGuess()
+
+    /** Not sure which: "Is it a: Shirt · Blazer · Jacket?" Picking one fills title, category and style. */
+    data class Choices(val labels: List<ItemLabel>) : ItemGuess()
+}
+
+/**
+ * A listable top label (allowed or jewelry) at or above [PhotoThresholds.SUGGEST_CONFIDENCE]
+ * suggests. Otherwise, when the three likeliest allowed labels add up to
+ * [PhotoThresholds.CHIPS_MIN_TOTAL], they're offered as chips. Otherwise nothing.
+ */
+fun guessItem(scores: PhotoScores, colors: ColorResult = ColorResult.NONE): ItemGuess {
+    val top = scores.labels.maxByOrNull { it.probability } ?: return ItemGuess.Unsure
+    val listable = top.label.tier == LabelTier.ALLOWED || top.label.tier == LabelTier.JEWELRY
+    if (listable && top.probability >= T.SUGGEST_CONFIDENCE) {
+        return ItemGuess.Suggest(top.label, top.probability, suggestionsFor(top.label, colors, patternOf(scores)))
+    }
+    val allowed = scores.labels.filter { it.label.tier == LabelTier.ALLOWED }.sortedByDescending { it.probability }.take(3)
+    if (allowed.size == 3 && allowed.sumOf { it.probability } >= T.CHIPS_MIN_TOTAL) return ItemGuess.Choices(allowed.map { it.label })
+    return ItemGuess.Unsure
+}
+
+/** The pattern when the model is at least [PhotoThresholds.PATTERN_CONFIDENCE] sure of it, else null. */
+fun patternOf(scores: PhotoScores): Pattern? {
+    if (scores.patterns.size != ItemLabels.PATTERNS.size) return null
+    val best = scores.patterns.indices.maxBy { scores.patterns[it] }
+    return ItemLabels.PATTERNS[best].takeIf { scores.patterns[best] >= T.PATTERN_CONFIDENCE }
+}
+
+/** Items whose second color is a border ("Yellow saree with red border"); others get "accents". */
+private val BORDERED = setOf("saree", "dupatta")
+
+/**
+ * "Navy polka-dot shirt", its category, item type, style and kind, and the description: only the
+ * real sentence ("Yellow saree with red border."). Jewelry gets no color: metal reads as yellow
+ * or grey, and the title shouldn't suggest gold or silver.
+ */
+fun suggestionsFor(label: ItemLabel, colors: ColorResult = ColorResult.NONE, pattern: Pattern? = null): ListingSuggestions {
+    require((label.tier == LabelTier.ALLOWED || label.tier == LabelTier.JEWELRY) && label.category != null) {
+        "${label.name} can't be listed"
+    }
+    val shown = if (label.tier == LabelTier.JEWELRY) ColorResult.NONE else colors
+    val words = listOfNotNull(shown.primary?.display?.lowercase(), pattern?.adjective, label.noun)
+    val title = words.joinToString(" ").replaceFirstChar { it.uppercase() }
+    val second = shown.secondary?.let { if (label.name in BORDERED) " with ${it.word} border" else " with ${it.word} accents" }.orEmpty()
     return ListingSuggestions(
+        label = label,
         title = title,
         category = label.category,
         itemType = label.itemType,
-        description = "$title. Add the fabric, fit and any flaws."
+        description = "$title$second.",
+        style = label.style,
+        kind = label.kind
     )
 }
 
-// ---- Color ------------------------------------------------------------------------------
+/** What picking an "Is it a: …?" chip fills in: the same as a suggestion for that label. */
+fun suggestionsForChip(label: ItemLabel, colors: ColorResult = ColorResult.NONE, scores: PhotoScores? = null) =
+    suggestionsFor(label, colors, scores?.let(::patternOf))
+
+/** The tip under Description; never saved. */
+const val DESCRIPTION_TIP = "Add the fabric, fit and any flaws."
 
 /**
- * The 16 color names a suggested title can use. Each has a few typical sRGB values (flattened
- * r, g, b triples), so a name covers its common shades: navy is both inky and bright, and a
- * pixel takes the name of the closest value.
+ * The faint hint under Description: a fabric guess when the model has one ("Might be silk or
+ * satin."), then [DESCRIPTION_TIP]. Never part of the description itself.
  */
-enum class ColorName(val display: String, private vararg val rgb: Int) {
-    BLACK("Black", 20, 20, 20, 40, 40, 45),
-    WHITE("White", 245, 245, 245, 235, 235, 228),
-    GREY("Grey", 128, 128, 128, 90, 90, 95, 165, 165, 165),
-    NAVY("Navy", 25, 35, 85, 0, 0, 128, 30, 40, 70),
-    BLUE("Blue", 40, 95, 195, 70, 130, 180, 30, 60, 170),
-    GREEN("Green", 60, 145, 60, 34, 139, 34, 110, 140, 60),
-    EMERALD("Emerald", 0, 115, 80, 0, 150, 110),
-    RED("Red", 205, 30, 35, 230, 20, 20, 180, 20, 30),
-    MAROON("Maroon", 120, 15, 35, 128, 0, 32, 90, 15, 30),
-    PINK("Pink", 236, 130, 170, 255, 182, 193, 255, 105, 180),
-    PURPLE("Purple", 110, 45, 140, 128, 0, 128, 150, 100, 180),
-    YELLOW("Yellow", 242, 210, 50, 255, 240, 120),
-    GOLD("Gold", 200, 160, 60, 212, 175, 55, 180, 140, 70),
-    BEIGE("Beige", 220, 200, 165, 235, 220, 190, 200, 180, 150),
-    BROWN("Brown", 115, 75, 45, 90, 55, 30, 150, 100, 60),
-    SILVER("Silver", 192, 192, 198, 210, 212, 216);
-
-    /** The typical values as (r, g, b). */
-    val samples: List<Triple<Int, Int, Int>> get() = rgb.toList().chunked(3).map { (r, g, b) -> Triple(r, g, b) }
-
-    internal val labs: List<DoubleArray> by lazy { samples.map { (r, g, b) -> rgbToLab(r, g, b) } }
-}
-
-/** The color name closest (in L*a*b*) to one pixel. */
-fun nearestColorName(r: Int, g: Int, b: Int): ColorName {
-    val lab = rgbToLab(r, g, b)
-    return ColorName.entries.minBy { name ->
-        name.labs.minOf { ref ->
-            val dl = lab[0] - ref[0]
-            val da = lab[1] - ref[1]
-            val db = lab[2] - ref[2]
-            dl * dl + da * da + db * db
-        }
-    }
-}
-
-/**
- * The dominant color of the middle of the photo, where the item usually is: every pixel in the
- * center box votes for its nearest color name and the most votes win.
- */
-fun dominantColorName(image: RgbImage): ColorName {
-    val (x0, y0, x1, y1) = centerBox(image.width, image.height)
-    val votes = IntArray(ColorName.entries.size)
-    // Every other pixel is plenty for a vote and halves the work.
-    for (y in y0 until y1 step 2) for (x in x0 until x1 step 2) {
-        val i = y * image.width + x
-        votes[nearestColorName(image.red(i), image.green(i), image.blue(i)).ordinal]++
-    }
-    return ColorName.entries[votes.indices.maxBy { votes[it] }]
+fun descriptionHint(fabrics: DoubleArray?): String {
+    if (fabrics == null || fabrics.size != ItemLabels.FABRICS.size) return DESCRIPTION_TIP
+    val ranked = fabrics.indices.sortedByDescending { fabrics[it] }
+    val first = ranked[0]
+    if (fabrics[first] < T.FABRIC_HINT_CONFIDENCE) return DESCRIPTION_TIP
+    val second = ranked[1].takeIf { fabrics[it] >= T.FABRIC_SECOND_CONFIDENCE }
+    val guess = listOfNotNull(ItemLabels.FABRICS[first], second?.let { ItemLabels.FABRICS[it] }).joinToString(" or ")
+    return "Might be $guess. $DESCRIPTION_TIP"
 }
 
 // ---- Model input --------------------------------------------------------------------------

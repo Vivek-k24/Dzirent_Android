@@ -34,6 +34,23 @@ class ModelAssetsTest {
     }
 
     @Test
+    fun generalPatternAndFabricSetsMatchTheCode() {
+        val json = Json.parseToJsonElement(File(dir, "label_embeddings.json").readText()).jsonObject
+        val dim = json.getValue("dim").jsonPrimitive.int
+        mapOf(
+            "general" to ItemLabels.GENERAL,
+            "patterns" to ItemLabels.PATTERNS.map { it.key },
+            "fabrics" to ItemLabels.FABRICS
+        ).forEach { (key, expected) ->
+            val set = json.getValue(key).jsonObject
+            assertEquals("$key in tools/ml/labels.py and ItemLabels.kt", expected, set.getValue("labels").jsonArray.map { it.jsonPrimitive.content })
+            val rows = set.getValue("embeddings").jsonArray
+            assertEquals(expected.size, rows.size)
+            rows.forEach { assertEquals(dim, it.jsonArray.size) }
+        }
+    }
+
+    @Test
     fun modelShipsAndStaysSmall() {
         val model = File(dir, "tinyclip_image.tflite")
         assertTrue("run tools/ml/export_image_encoder.py", model.isFile)

@@ -54,10 +54,16 @@ https://github.com/wkcn/TinyCLIP-model-zoo/releases/download/checkpoints/TinyCLI
 python check_model.py photo1.jpg photo2.jpg photo3.jpg
 ```
 
-For each photo the script prints the top 3 labels and what the app would show: a suggestion, a
-policy warning, or nothing. With several photos it also prints how similar each one is to the
+For each photo the script prints the top 3 labels, the general check and the tier totals, and
+what the app would do: remove the photo, ask for the accessory declaration, show the
+everyday-basics warning, fill in the details, ask "Is it a: …?", or nothing. It also prints the
+pattern and fabric guesses. With several photos it prints how similar each one is to the
 first, which is the app's "looks like a different item" check. It needs only `numpy`, `pillow`
 and `ai-edge-litert`, not TinyCLIP.
+
+**Before trusting the automatic removals, run it on real photos of things that aren't
+clothing** (a bike, a tent, a laptop, a dog). None were available when the thresholds were set,
+so only the "never remove clothing" side has been checked (below).
 
 ## Remake the files
 
@@ -66,15 +72,32 @@ python make_text_embeddings.py --tinyclip TinyCLIP --checkpoint TinyCLIP-ResNet-
 python export_image_encoder.py --tinyclip TinyCLIP --checkpoint TinyCLIP-ResNet-19M-Text-19M-LAION400M.pt --images C:\some\clothing\photos
 ```
 
-- **Labels.** `labels.py` lists them in the same order as `ItemLabels.kt`. To add one, add it in
-  both places with its tier and category. The unit test `ModelAssetsTest` fails if they differ.
+- **Labels.** `labels.py` lists them in the same order as `ItemLabels.kt`, by tier: allowed,
+  jewelry, not fashion, not allowed, not offered. To add one, add it in both places with its tier
+  and category. The unit test `ModelAssetsTest` fails if they differ.
+- **Smaller sets.** The same JSON also holds the general check (fashion / not fashion), the
+  patterns (for the title) and the fabrics (a hint under Description), each scored with its own
+  softmax. Their names must match `ItemLabels.GENERAL`, `PATTERNS` and `FABRICS`.
+- **The general check's wording.** CLIP doesn't understand "not": the sentence "a photo of
+  something that is not clothing" scored the 40 clothing photos as 87% (median) "not clothing",
+  because the word "clothing" is in it. So the negative side is a list of things instead (a
+  vehicle, a tool, furniture, an electronic device, an animal, food, sports equipment, a
+  document), averaged. On the same photos the highest "not fashion" was then 21%.
 - **Export.** PyTorch goes to ONNX, then onnx2tf makes a float TFLite file. ai-edge-quantizer then
   stores the weights as int8. The stem and two shortcut convolutions stay float32 or float16:
   int8 on those layers alone drifts the embeddings noticeably. The script fails if the result
   drifts from PyTorch: it needs a cosine similarity of at least 0.96 on synthetic images and on
   your `--images`.
-- **Recalibrating.** The thresholds (suggestion and policy confidence, same-item similarity) are
-  in `PhotoThresholds.kt` (owner to tune), copied in `labels.py` for `check_model.py`.
+- **Recalibrating.** The thresholds (suggestion, removal, jewelry and warning confidence, the
+  general check, same-item similarity) are in `PhotoThresholds.kt` (owner to tune), copied in
+  `labels.py` for `check_model.py`.
+
+## What the 40 sample photos say about the removal thresholds
+
+With the 81 labels, on the same 40 clothing photos: the general check's "not fashion" peaked at
+21% (removal needs 70%), the not-fashion labels together at 30% (one dress read 29% "food";
+removal also needs 50%), the not-allowed groups at 38% (removal needs 70%) and jewelry at 42%
+(a gown with pearls; the declaration needs 60%). No clothing photo would have been removed.
 
 ## How the shipped model did on 40 sample photos
 

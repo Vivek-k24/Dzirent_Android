@@ -42,7 +42,7 @@ object PhotoThresholds {
     const val GLARE_SHARE = 0.04
     /** ...while the center is mostly darker than this, so it's a highlight, not a white item (owner to tune). */
     const val GLARE_MAX_CENTER_MEDIAN = 170.0
-    /** The "center" for glare and color: this share of the width and height, in the middle (owner to tune). */
+    /** The "center" for glare (and for color when no item was found): this share of the width and height, in the middle (owner to tune). */
     const val CENTER_SHARE = 0.5
 
     // ---- Whole item visible (framing) -----------------------------------------------------
@@ -67,8 +67,39 @@ object PhotoThresholds {
     const val LOGIT_SCALE = 50.0
     /** Title, category and description are suggested only at or above this top-label probability (owner to tune). */
     const val SUGGEST_CONFIDENCE = 0.45
-    /** "Not allowed" / "not offered" warnings need at least this probability for the group (owner to tune). */
+    /** "Not offered" warnings need at least this probability for the group (owner to tune). */
     const val POLICY_CONFIDENCE = 0.60
-    /** Another photo whose image embedding is less similar than this to the cover's looks like a different item (owner to tune). */
+    /** A not-allowed group at or above this is removed from the listing at once (owner to tune).
+     *  On 40 clothing photos the highest was 0.38 (a dress worn by a model, read as lingerie and swimwear). */
+    const val REMOVE_CONFIDENCE = 0.70
+    /** Not fashion needs the general check at or above this... (owner to tune; clothing photos peaked at 0.21) */
+    const val GENERAL_NOT_FASHION_CONFIDENCE = 0.70
+    /** ...and the not-fashion labels together at or above this (owner to tune; clothing photos peaked at 0.30). */
+    const val NOT_FASHION_LABEL_CONFIDENCE = 0.50
+    /** Jewelry labels together at or above this ask for the accessory declaration (owner to tune; clothing peaked at 0.42). */
+    const val JEWELRY_CONFIDENCE = 0.60
+    /** Below [SUGGEST_CONFIDENCE], the three likeliest allowed labels are offered as chips when they add up to this (owner to tune). */
+    const val CHIPS_MIN_TOTAL = 0.40
+    /** A pattern is named in the title at or above this (owner to tune). */
+    const val PATTERN_CONFIDENCE = 0.70
+    /** A fabric is guessed in the Description hint at or above this... (owner to tune) */
+    const val FABRIC_HINT_CONFIDENCE = 0.40
+    /** ...and a second one added at or above this (owner to tune). */
+    const val FABRIC_SECOND_CONFIDENCE = 0.25
+    /** Another photo whose image embedding is less similar than this to the front's looks like a different item (owner to tune). */
     const val SAME_ITEM_MIN_SIMILARITY = 0.65
+
+    // ---- Color names ----------------------------------------------------------------------
+    /** Fewer sampled garment pixels than this: no color (owner to tune). */
+    const val COLOR_MIN_PIXELS = 200
+    /** The top color (with its related shades) needs this share of the garment's pixels (owner to tune). */
+    const val COLOR_MIN_SHARE = 0.35
+    /** A second color this close to the top one (as a share of it) means it's too close to call: no color (owner to tune). */
+    const val COLOR_TIE_RATIO = 0.75
+    /** A clear second color needs this share of the garment's pixels (owner to tune). */
+    const val SECOND_COLOR_MIN_SHARE = 0.12
+    /** Dark pixels are navy when blue is on average at least this much above the mean of red and green (0-255) (owner to tune). */
+    const val NAVY_BLUE_EXCESS = 15.0
+    /** If skin-toned pixels are more than this share of the item, they're the fabric (a beige dress) and count (owner to tune). */
+    const val SKIN_MAX_SHARE = 0.6
 }

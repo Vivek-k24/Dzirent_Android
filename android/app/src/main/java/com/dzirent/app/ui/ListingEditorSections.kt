@@ -25,13 +25,20 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
 
-/** One measurement row in the editor; [key] doubles as the row id when saved. */
+/**
+ * One measurement row in the editor; [key] doubles as the row id when saved. [template] rows
+ * come from the garment kind with only a label; left without a value they're simply skipped.
+ */
 data class MeasurementRow(
     val key: String = UUID.randomUUID().toString(),
     val label: String = "",
-    val valueText: String = ""
+    val valueText: String = "",
+    val template: Boolean = false
 ) {
     fun toInput() = MeasurementInput(label, valueText)
+
+    /** Not saved and not checked: blank, or a template row nobody filled in. */
+    val isUnused: Boolean get() = toInput().isBlank || (template && valueText.isBlank())
 }
 
 /**
@@ -49,7 +56,7 @@ fun MeasurementsSection(
     onRowsChange: (List<MeasurementRow>) -> Unit,
     showAllErrors: Boolean
 ) {
-    val errors = validateMeasurements(rows.map { it.toInput() })
+    val errors = validateMeasurements(rows.map { if (it.isUnused) MeasurementInput("", "") else it.toInput() })
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {

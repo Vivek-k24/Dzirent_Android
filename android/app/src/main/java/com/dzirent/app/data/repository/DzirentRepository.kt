@@ -682,7 +682,8 @@ class DzirentRepository {
     /** My listings with their photos embedded (for thumbnails). */
     suspend fun getMyListings(lenderId: String): List<Listing> {
         return try {
-            postgrest.from("listings").select(Columns.raw("*, photos:listing_photos(*)")) {
+            // Measurements too, for "Same as your …" in Create listing.
+            postgrest.from("listings").select(Columns.raw("*, photos:listing_photos(*), measurements:listing_measurements(*)")) {
                 filter { eq("lender_id", lenderId) }
                 order("created_at", Order.DESCENDING)
             }.decodeList<Listing>().map { it.sorted() }
@@ -730,6 +731,9 @@ class DzirentRepository {
                     put("retail_value", listing.retailValue)
                     put("deposit_note", listing.depositNote)
                     put("listing_styles", JsonArray(listing.listingStyles.map { JsonPrimitive(it) }))
+                    put("garment_type", listing.garmentType)
+                    // Only ever set here; a trigger (008) keeps owners from clearing it.
+                    if (listing.aiReviewNeeded) put("ai_review_needed", true)
                     put("status", status)
                 }
             ) {
@@ -881,12 +885,79 @@ class DzirentRepository {
         }
     }
 
+    // --- ACCESSORY DECLARATIONS & SUGGESTION TRACKING (008) ---
+
+    /** True if I signed [version] of the accessory declaration (my own rows only, by RLS). */
+    suspend fun hasAccessoryDeclaration(userId: String, version: Int): Boolean {
+        return try {
+            postgrest.from("accessory_declarations").select(Columns.list("id")) {
+                filter {
+                    eq("user_id", userId)
+                    eq("declaration_version", version)
+                }
+                limit(1)
+            }.decodeList<JsonObject>().isNotEmpty()
+        } catch (e: Exception) {
+            throw fail("check your accessory declaration", e)
+        }
+    }
+
+    /**
+     * Signs the accessory declaration. The server fills in who (from the login), the email,
+     * the session, the IP, the user agent and the city; the app only sends the typed name.
+     */
+    suspend fun recordAccessoryDeclaration(fullLegalName: String, version: Int, appVersion: String) {
+        try {
+            postgrest.rpc("record_accessory_declaration", buildJsonObject {
+                put("p_full_legal_name", fullLegalName)
+                put("p_declaration_version", version)
+                put("p_app_version", appVersion)
+            })
+        } catch (e: Exception) {
+            throw fail("save your declaration", e)
+        }
+    }
+
+    /** The per-listing tick for an accessory listing. */
+    suspend fun recordListingDeclaration(listingId: String, version: Int) {
+        try {
+            postgrest.rpc("record_listing_declaration", buildJsonObject {
+                put("p_listing_id", listingId)
+                put("p_declaration_version", version)
+            })
+        } catch (e: Exception) {
+            throw fail("save the listing declaration", e)
+        }
+    }
+
+    /**
+     * Adds rows to suggestion_events (insert only; nobody reads them in the app). Never fails
+     * the caller: a lost event only gets logged.
+     */
+    suspend fun logSuggestionEvents(userId: String, events: List<SuggestionEvent>) {
+        if (events.isEmpty()) return
+        try {
+            postgrest.from("suggestion_events").insert(events.map { e ->
+                buildJsonObject {
+                    put("user_id", userId)
+                    put("listing_id", e.listingId)
+                    put("field", e.field)
+                    put("label", e.label)
+                    put("action", e.action)
+                }
+            })
+        } catch (e: Exception) {
+            logError("log suggestion events", e)
+        }
+    }
+
     // --- PHOTO UPLOAD & COMPRESSION ---
     suspend fun uploadListingPhoto(
         userId: String,
         listingId: String,
         imageBytes: ByteArray,
-        position: Int
+        position: Int,
+        slot: String?
     ): ListingPhoto {
         val compressed = withContext(Dispatchers.Default) { compressImage(imageBytes) }
             ?: throw DzirentException("One of the photos couldn't be read. Remove it or pick a different one.")
@@ -905,7 +976,8 @@ class DzirentRepository {
             id = photoUuid,
             listingId = listingId,
             storagePath = storage.from("listing-photos").publicUrl(path),
-            position = position
+            position = position,
+            slot = slot
         )
         try {
             postgrest.from("listing_photos").insert(photo)
@@ -917,9 +989,12 @@ class DzirentRepository {
         return photo
     }
 
-    suspend fun updatePhotoPosition(photoId: String, position: Int) {
+    suspend fun updatePhotoPosition(photoId: String, position: Int, slot: String?) {
         try {
-            postgrest.from("listing_photos").update(buildJsonObject { put("position", position) }) {
+            postgrest.from("listing_photos").update(buildJsonObject {
+                put("position", position)
+                put("slot", slot)
+            }) {
                 filter { eq("id", photoId) }
             }
         } catch (e: Exception) {

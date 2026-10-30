@@ -116,6 +116,13 @@ data class Listing(
     @SerialName("deposit_note") val depositNote: String? = null,
     /** Up to [com.dzirent.app.util.FashionStyles.LISTING_MAX] from FashionStyles.ALL (007). Not shown on cards. */
     @SerialName("listing_styles") val listingStyles: List<String> = emptyList(),
+    /** [com.dzirent.app.util.GarmentKind.key]: decides the size picker and measurement rows (008). */
+    @SerialName("garment_type") val garmentType: String? = null,
+    /**
+     * Set when the lender kept a photo the phone wanted to remove ("It's fashion, keep it") or
+     * overruled a warning, so the operator checks the listing later (008). Owners can't clear it.
+     */
+    @SerialName("ai_review_needed") val aiReviewNeeded: Boolean = false,
     val photos: List<ListingPhoto> = emptyList(),
     val measurements: List<ListingMeasurement> = emptyList(),
     val availability: List<Availability> = emptyList(),
@@ -149,6 +156,13 @@ data class SavedStudio(
     val lender: Profile? = null
 )
 
+/**
+ * One row of public.suggestion_events (008): what happened to a suggestion from the photos.
+ * [field] is title, category, description, style, type_chip or tier; [action] is kept, cleared,
+ * edited, picked, removed or kept_override. [listingId] is null before the listing exists.
+ */
+data class SuggestionEvent(val field: String, val label: String, val action: String, val listingId: String? = null)
+
 /** Kinds of rows in public.listing_events. */
 object ListingEvents {
     const val VIEW = "view"
@@ -161,7 +175,9 @@ data class ListingPhoto(
     val id: String,
     @SerialName("listing_id") val listingId: String,
     @SerialName("storage_path") val storagePath: String,
-    val position: Int
+    val position: Int,
+    /** [com.dzirent.app.util.PhotoSlot.key]: Front, Back, Close-up... (008). Null on older photos. */
+    val slot: String? = null
 )
 
 @Serializable
@@ -307,13 +323,17 @@ object Categories {
 
 /** Item types allowed in Accessories; the same list is in the listings_item_type_check constraint. */
 object AccessoryTypes {
-    val ALL = listOf("Sunglasses", "Handbag", "Tie", "Watch (non-smart)", "Belt buckle")
+    /** Jewelry that isn't real gold, silver, platinum, diamonds, pearls or gemstones (008). */
+    const val COSTUME_JEWELRY = "Costume jewelry"
+
+    val ALL = listOf("Sunglasses", "Handbag", "Tie", "Watch (non-smart)", "Belt buckle", COSTUME_JEWELRY)
 
     val SUGGESTIONS = mapOf(
         "Sunglasses" to listOf("Lens width", "Bridge", "Temple length"),
         "Handbag" to listOf("Width", "Height", "Depth", "Strap drop"),
         "Tie" to listOf("Length", "Width"),
         "Watch (non-smart)" to listOf("Case diameter", "Band length"),
-        "Belt buckle" to listOf("Width", "Height")
+        "Belt buckle" to listOf("Width", "Height"),
+        COSTUME_JEWELRY to listOf("Length", "Width")
     )
 }

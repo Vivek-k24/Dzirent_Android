@@ -25,12 +25,18 @@ sealed class PhotoItem {
     }
 }
 
-/** Everything the editor saves. [listing] carries the id, owner, location and text fields. */
+/**
+ * Everything the editor saves. [listing] carries the id, owner, location and text fields;
+ * [photos] are in display order, with their slot keys ([slots], same order). With
+ * [listingDeclarationVersion] set (accessories), the per-listing declaration is recorded too.
+ */
 data class ListingDraft(
     val listing: Listing,
     val photos: List<PhotoItem>,
     val measurements: List<ListingMeasurement>,
-    val availability: List<Availability>
+    val availability: List<Availability>,
+    val slots: List<String?> = photos.map { null },
+    val listingDeclarationVersion: Int? = null
 )
 
 /** Thrown when a publish step fails; [step] names it for the Retry screen. */
@@ -55,10 +61,11 @@ class ListingPublisher(
     private var listingCreated = original != null
     private val deletedPhotoIds = mutableSetOf<String>()
     private val uploaded = mutableMapOf<String, ListingPhoto>() // PhotoItem.New key -> saved photo
-    private val savedPositions = mutableMapOf<String, Int>()     // photo id -> position in DB
+    private val savedPositions = mutableMapOf<String, Pair<Int, String?>>() // photo id -> (position, slot) in DB
+    private var declarationRecorded = false
 
     init {
-        original?.photos?.forEach { savedPositions[it.id] = it.position }
+        original?.photos?.forEach { savedPositions[it.id] = it.position to it.slot }
     }
 
     /**
@@ -98,9 +105,10 @@ class ListingPublisher(
         newPhotos.forEachIndexed { i, (position, item) ->
             step("Uploading photo ${i + 1} of ${newPhotos.size}", onProgress) {
                 val bytes = readBytes((item as PhotoItem.New).uri)
-                val photo = repository.uploadListingPhoto(listing.lenderId, listing.id, bytes, position)
+                val slot = draft.slots.getOrNull(position)
+                val photo = repository.uploadListingPhoto(listing.lenderId, listing.id, bytes, position, slot)
                 uploaded[item.key] = photo
-                savedPositions[photo.id] = position
+                savedPositions[photo.id] = position to slot
             }
         }
 
@@ -110,9 +118,10 @@ class ListingPublisher(
                     is PhotoItem.Existing -> item.photo.id
                     is PhotoItem.New -> uploaded.getValue(item.key).id
                 }
-                if (savedPositions[photoId] != position) {
-                    repository.updatePhotoPosition(photoId, position)
-                    savedPositions[photoId] = position
+                val place = position to draft.slots.getOrNull(position)
+                if (savedPositions[photoId] != place) {
+                    repository.updatePhotoPosition(photoId, place.first, place.second)
+                    savedPositions[photoId] = place
                 }
             }
         }
@@ -120,6 +129,14 @@ class ListingPublisher(
         step("Saving measurements and dates", onProgress) {
             repository.replaceMeasurements(listing.id, draft.measurements)
             repository.replaceAvailability(listing.id, draft.availability)
+        }
+
+        val declarationVersion = draft.listingDeclarationVersion
+        if (declarationVersion != null && !declarationRecorded) {
+            step("Saving the declaration", onProgress) {
+                repository.recordListingDeclaration(listing.id, declarationVersion)
+                declarationRecorded = true
+            }
         }
 
         step(if (finalStatus == "active") "Publishing" else "Finishing up", onProgress) {

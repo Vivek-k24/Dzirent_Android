@@ -15,7 +15,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.dzirent.app.data.model.AccessoryTypes
+import com.dzirent.app.data.model.Categories
 import com.dzirent.app.util.ItemLabels
+import com.dzirent.app.util.joinWithAnd
 
 /** Single source of truth for Dzirent's "we only connect people" policy wording. */
 object DzirentPolicy {
@@ -38,10 +41,28 @@ object DzirentPolicy {
     const val PROHIBITED_TITLE = "What can't be listed"
 
     /**
-     * The "Not allowed" and "Not offered" lists, built from the same labels the photo warnings
-     * use (ItemLabels), so the policy and the warnings never drift apart.
+     * What Dzirent is for, then the "Not allowed" and "Not offered" lists, built from the same
+     * labels the photo checks use (ItemLabels), so the policy, the "What can I list?" sheet and
+     * the automatic removals never drift apart.
      */
-    val ITEM_RULES: String = ItemLabels.notAllowedText + "\n" + ItemLabels.notOfferedText
+    val ITEM_RULES: String = ItemLabels.SCOPE + "\n" + ItemLabels.notAllowedText + "\n" + ItemLabels.notOfferedText
+
+    const val WHAT_CAN_I_LIST_TITLE = "What can I list?"
+
+    /** "You can list clothing in …, and these accessories: …" for the "What can I list?" sheet. */
+    val CAN_LIST: String = "You can list clothing in " +
+        joinWithAnd(Categories.ALL.filter { it != Categories.ACCESSORIES }) +
+        ", and these accessories: " + AccessoryTypes.ALL.joinToString(", ") { it.lowercase() } + "."
+
+    /** How jewelry works, from the same constants as the declaration. */
+    val JEWELRY_NOTE: String =
+        "Costume jewelry is welcome. The first time you list jewelry or an accessory, you sign a short declaration " +
+            "that it isn't ${ItemLabels.JEWELRY_GROUP.text} and is worth less than \$${ItemLabels.ACCESSORY_MAX_VALUE_USD}."
+
+    /** Why a photo can disappear from the listing form. */
+    const val REMOVAL_NOTE =
+        "Photos that look like something Dzirent doesn't list are removed from the form right away. If we got it " +
+            "wrong, tap \"It's fashion, keep it\" and someone from Dzirent will check the listing later."
 
     val PROHIBITED_ITEMS: String =
         ITEM_RULES + "\nUse \"Report listing\" with the reason \"Prohibited item\" if you see one."
@@ -52,7 +73,8 @@ object DzirentPolicy {
 
     /** Shown once per conversation in chat. */
     const val CHAT_SAFETY_TIP =
-        "Safety tip: meet in a public place and never send money before you see the item."
+        "Safety tip: meet in a public place and never send money before you see the item. " +
+            "We recommend washing anything worn against the skin before wearing."
 
     const val SIGN_UP_CONSENT = "I understand Dzirent only connects people"
 
@@ -139,6 +161,38 @@ fun HowDzirentWorksDialog(onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("Got it") }
         }
     )
+}
+
+/** "What can I list?": what Dzirent is for, what can and can't be listed, and how jewelry works. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WhatCanIListSheet(onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp)
+        ) {
+            Text(DzirentPolicy.WHAT_CAN_I_LIST_TITLE, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(ItemLabels.SCOPE, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(DzirentPolicy.CAN_LIST, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(ItemLabels.notAllowedText, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(ItemLabels.notOfferedText, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(DzirentPolicy.JEWELRY_NOTE, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                DzirentPolicy.REMOVAL_NOTE,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 /** Small tinted card for inline policy notices and tips. */

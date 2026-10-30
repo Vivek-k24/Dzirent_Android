@@ -196,15 +196,25 @@ private fun centerValues(values: IntArray, width: Int, height: Int): IntArray {
 
 // ---- Whole item visible -----------------------------------------------------------------
 
+/** Whether the whole item is in the frame; see [findItem]. */
+fun checkWholeItem(image: RgbImage): CheckResult = findItem(image).result
+
+/**
+ * The framing check's result, the item it found ([region], true for the item's pixels; null if
+ * none was found) and the background's median L*a*b* color (null if the border isn't one surface).
+ * The color names are measured inside [region].
+ */
+class ItemFinding(val result: CheckResult, val region: BooleanArray? = null, val background: DoubleArray? = null)
+
 /**
  * Finds the item as the largest region that differs from the background (the median color of
  * the photo's border), then checks whether its outline runs along an edge of the frame.
  * A busy background (more than 30% of the border is not one surface) is UNSURE, not a failure.
  */
-fun checkWholeItem(image: RgbImage): CheckResult {
+fun findItem(image: RgbImage): ItemFinding {
     val w = image.width
     val h = image.height
-    if (min(w, h) < 16) return CheckResult(CheckStatus.UNSURE, "too_small")
+    if (min(w, h) < 16) return ItemFinding(CheckResult(CheckStatus.UNSURE, "too_small"))
     val lab = toLab(image)
     val band = max(4, (T.BORDER_SHARE * min(w, h)).roundToInt()).coerceAtMost(min(w, h) / 2)
 
@@ -223,7 +233,7 @@ fun checkWholeItem(image: RgbImage): CheckResult {
     }
     val stripDistance = DoubleArray(strip.size) { distance(strip[it]) }
     if (stripDistance.count { it > T.BORDER_NOISE_DISTANCE } / stripDistance.size.toDouble() > T.BORDER_MAX_NOISY_SHARE) {
-        return CheckResult(CheckStatus.UNSURE, "background_not_uniform")
+        return ItemFinding(CheckResult(CheckStatus.UNSURE, "background_not_uniform"))
     }
     val threshold = max(T.ITEM_MIN_DISTANCE, 3.0 * percentile(stripDistance, 75.0))
     var mask = BooleanArray(w * h) { distance(it) > threshold }
@@ -231,7 +241,9 @@ fun checkWholeItem(image: RgbImage): CheckResult {
     mask = erode(dilate(mask, w, h, 11), w, h, 11)  // close: fill small gaps
 
     val item = largestRegion(mask, w, h)
-    if (item == null || item.size < T.ITEM_MIN_AREA * w * h) return CheckResult(CheckStatus.UNSURE, "garment_not_detected")
+    if (item == null || item.size < T.ITEM_MIN_AREA * w * h) {
+        return ItemFinding(CheckResult(CheckStatus.UNSURE, "garment_not_detected"), background = background)
+    }
 
     val inItem = BooleanArray(w * h).also { m -> item.forEach { m[it] = true } }
     val m = T.EDGE_MARGIN_PX
@@ -252,9 +264,9 @@ fun checkWholeItem(image: RgbImage): CheckResult {
     if (outline > 0 && onEdge.toDouble() / outline >= T.CUT_OFF_OUTLINE_SHARE) {
         val side = touching.indices.maxBy { touching[it] }
         val issue = listOf(PhotoIssue.CUT_OFF_TOP, PhotoIssue.CUT_OFF_BOTTOM, PhotoIssue.CUT_OFF_LEFT, PhotoIssue.CUT_OFF_RIGHT)[side]
-        return CheckResult(CheckStatus.FAIL, "garment_cut_off", issue)
+        return ItemFinding(CheckResult(CheckStatus.FAIL, "garment_cut_off", issue), inItem, background)
     }
-    return CheckResult(CheckStatus.PASS, "garment_fully_visible")
+    return ItemFinding(CheckResult(CheckStatus.PASS, "garment_fully_visible"), inItem, background)
 }
 
 private fun median(values: DoubleArray): Double {
