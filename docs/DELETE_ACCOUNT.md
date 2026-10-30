@@ -22,6 +22,10 @@ What the function does (source: `supabase/functions/delete-account/index.ts`):
    messages (for both people), rentals, saves, measurements, blocks and reads
    are deleted with it. Reports someone *else* filed about this person stay for
    moderation.
+   Accessory declarations (`accessory_declarations`, `listing_declarations`, 008)
+   and suggestion events stay, with `user_id` set to null: the declarations are
+   the record of what the person signed (see `docs/PRIVACY_POLICY_NOTES.md`,
+   flagged for lawyer review).
 
 The service role key stays on Supabase's servers. It is never in the app or in
 this repository.
